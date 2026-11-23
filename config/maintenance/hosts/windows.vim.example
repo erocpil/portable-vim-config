@@ -1,0 +1,12 @@
+" Copy to ~/vimfiles/vimrc.local and adjust if the tools are outside PATH.
+if executable('clangd')
+    let g:ycm_clangd_binary_path = exepath('clangd')
+endif
+if executable('clang')
+    let g:portable_practice_cc = exepath('clang')
+endif
+if executable('clang++')
+    let g:portable_practice_cxx = exepath('clang++')
+endif
+" Set only if ycmd was built with an interpreter outside your default PATH.
+" let g:ycm_server_python_interpreter = 'C:/path/to/python.exe'

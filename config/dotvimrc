@@ -1,0 +1,2530 @@
+" Portable Vim configuration: Linux / Windows / macOS, Vim 8.2+.
+" Unix: ~/.vimrc; Windows: ~/_vimrc. Optional overrides: vimrc.local.
+set nocompatible
+set encoding=utf-8
+scriptencoding utf-8
+let s:windows = has('win32') || has('win64')
+let s:mac = has('macunix')
+if s:windows && filereadable($VIMRUNTIME . '/mswin.vim')
+    execute 'source ' . fnameescape($VIMRUNTIME . '/mswin.vim')
+    behave mswin
+endif
+let g:portable_vim_home = get(g:, 'portable_vim_home', expand(s:windows ? '~/vimfiles' : '~/.vim'))
+let s:home = g:portable_vim_home
+" Include the chosen user runtime even when launched with -u /path/dotvimrc.
+if index(split(&runtimepath, ','), s:home) < 0
+    execute 'set runtimepath^=' . escape(s:home, ' ,\\')
+endif
+
+" Adjacent packages travel with this configuration, including when using -u.
+let s:config_dir = expand('<sfile>:p:h')
+let s:packages = s:config_dir . '/.vim-pack'
+if get(g:, 'portable_vim_plugins', 1) && isdirectory(s:packages) && index(split(&packpath, ','), s:packages) < 0
+    let &packpath = escape(s:packages, ' ,\\') . ',' . &packpath
+endif
+if get(g:, 'portable_vim_plugins', 1)
+            \ && (!empty(globpath(&packpath, 'pack/*/start/vim-fugitive', 0, 1))
+            \     || !empty(globpath(&packpath, 'pack/*/opt/vim-fugitive', 0, 1)))
+    packadd vim-fugitive
+endif
+
+" Encoding: BOM must precede UTF-8; new files use UTF-8 on every platform.
+set encoding=utf-8
+set fileencoding=utf-8
+set fileencodings=ucs-bom,utf-8,gb18030,big5,latin1
+set fileformats=unix,dos,mac
+set fileformat=unix
+
+" Fold entire Vim functions (including blank lines), without nested if folds.
+let g:vimsyn_folding = get(g:, 'vimsyn_folding', 'f')
+
+" Plugin preferences: grouped by provider; values retain the original behavior.
+" Set these before Vundle/runtime plugins and colorschemes read their options.
+
+" YouCompleteMe (ycm-core/YouCompleteMe): Python 3 + native YCM build.
+" C/C++ use clangd; enable completion for C, C++ and Go only.
+" Confirm executable extra_conf scripts; keep preview windows transient.
+let g:ycm_confirm_extra_conf = 1
+let g:ycm_autoclose_preview_window_after_completion = 1
+let g:ycm_autoclose_preview_window_after_insertion = 1
+let g:ycm_add_preview_to_completeopt = 0
+let g:ycm_show_diagnostics_ui = 1
+let g:ycm_error_symbol = '>>'
+let g:ycm_warning_symbol = '->'
+let g:ycm_echo_current_diagnostic = 1
+let g:ycm_update_diagnostics_in_insert_mode = 0
+let g:ycm_min_num_identifier_candidate_chars = 2
+let g:ycm_collect_identifiers_from_comments_and_strings = 1
+let g:ycm_filetype_whitelist = {'c': 1, 'cpp': 1, 'go': 1}
+let g:ycm_semantic_triggers = {'c': ['->', '.', 're!\w{2}']}
+let g:ycm_enable_diagnostic_signs = 1
+let g:ycm_enable_diagnostic_highlighting = 1
+let g:ycm_server_log_level = 'info'
+" This YCM version needs an explicit clangd path; honor preexisting overrides.
+if !exists('g:ycm_clangd_binary_path') && executable('clangd')
+    let g:ycm_clangd_binary_path = exepath('clangd')
+endif
+
+" Tagbar (preservim/tagbar): requires compatible ctags.
+" Left symbol outline, sorted and compact; opening does not steal focus.
+let g:tagbar_left = 1
+let g:tagbar_width = 30
+let g:tagbar_compact = 1
+let g:tagbar_sort = 1
+let g:tagbar_systemenc = 'utf-8'
+let g:tagbar_autofocus = 0
+let g:tagbar_indent = 1
+" Tagbar calls this hook on WinEnter/WinLeave.  Use the compact custom layout
+" only while Tagbar has focus; otherwise retain Tagbar's stock inactive line.
+function! PortableTagbarStatusline(active, sort, filename, flags) abort
+    if a:active
+        let l:flags = empty(a:flags) ? '' : ' [' . join(a:flags, '') . ']'
+        let l:right = ' ' . a:sort . l:flags . ' '
+        return '%#TagbarStatusTitle#[Tagbar] %#TagbarStatusFill#%='
+                    \ . '%#TagbarStatusMode#' . l:right
+    endif
+    let l:flags = empty(a:flags) ? '' : '[' . join(a:flags, '') . '] '
+    return '%#StatusLineNC#[' . a:sort . '] ' . l:flags
+endfunction
+let g:tagbar_status_func = 'PortableTagbarStatusline'
+
+" Tagbar's QuitPre cleanup does not run when :q closes a source window while
+" another tab page remains.  Defer the check until Vim has selected Tagbar;
+" close only a tab page whose sole remaining window is the Tagbar buffer.
+function! s:CloseOrphanTagbar(tabnr, winid, timer) abort
+    if tabpagenr('$') <= 1 || empty(getwininfo(a:winid))
+        return
+    endif
+    let l:info = getwininfo(a:winid)[0]
+    if l:info.tabnr != a:tabnr || len(tabpagebuflist(a:tabnr)) != 1
+        return
+    endif
+    let l:buf = winbufnr(a:winid)
+    if getbufvar(l:buf, '&filetype') ==# 'tagbar'
+                \ || bufname(l:buf) =~# '^__Tagbar__\.'
+        execute 'silent! tabclose ' . a:tabnr
+    endif
+endfunction
+function! s:ScheduleOrphanTagbarClose() abort
+    if exists('*timer_start') && winnr('$') == 1 && tabpagenr('$') > 1
+        call timer_start(0, function('<SID>CloseOrphanTagbar',
+                    \ [tabpagenr(), win_getid()]))
+    endif
+endfunction
+augroup PortableVimTagbarLifecycle
+    autocmd!
+    autocmd WinEnter __Tagbar__.* call <SID>ScheduleOrphanTagbarClose()
+augroup END
+
+" NERDTree (preservim/nerdtree): project file browser.
+" Right-hand pane; keep it open after selecting a file.
+let g:NERDTreeWinPos = 'right'
+let g:NERDTreeWinSize = 20
+let g:NERDTreeQuitOnOpen = 0
+
+" NERDCommenter (preservim/nerdcommenter): comment/uncomment helpers.
+" Insert a space between the comment delimiter and its text.
+let g:NERDSpaceDelims = 1
+
+" vim-indent-guides (nathanaelkane/vim-indent-guides): indentation guides.
+" Custom guide colors are reapplied by s:Highlights() after theme changes.
+let g:indent_guides_auto_colors = 0
+let g:indent_guides_start_level = 0
+let g:indent_guides_guide_size = 1
+
+" Syntastic: compatibility settings for an independently installed plugin.
+" Not added to the managed plugin list; when present, populate its location list.
+let g:syntastic_always_populate_loc_list = 1
+
+" netrw: Vim built-in file browser.
+" Retain its pane width when NERDTree is unavailable or netrw is opened manually.
+let g:netrw_winsize = 30
+
+" mayansmoke: optional colorscheme preferences.
+" Keep the original cursor-line, search and special-key visibility settings.
+let g:mayansmoke_cursor_line_visibility = 2
+let g:mayansmoke_search_visibility = 2
+let g:mayansmoke_special_key_visibility = 2
+
+" HTML syntax: legacy folding preference for compatible syntax scripts.
+" Preserve the original dynamic-fold setting; no separate plugin is installed.
+let g:html_dynamic_folds = 1
+
+" Fugitive: adjacent native package, with default plugin settings.
+" Git mappings and the short-file blame compatibility helper appear below.
+
+" EditorConfig: adjacent package, loaded after filetype indentation defaults.
+" Exclude virtual Git/remote buffers from project formatting rules.
+let g:EditorConfig_exclude_patterns = get(g:, 'EditorConfig_exclude_patterns', ['fugitive://.*', 'scp://.*'])
+
+" Vundle is optional: an unprovisioned machine still starts normally.
+augroup filetypedetect
+augroup END
+filetype off
+let s:vundle = s:home . '/bundle/Vundle.vim'
+if get(g:, 'portable_vim_plugins', 1) && filereadable(s:vundle . '/autoload/vundle.vim')
+    execute 'set runtimepath+=' . escape(s:vundle, ' ,\\')
+    call vundle#begin(s:home . '/bundle')
+    Plugin 'VundleVim/Vundle.vim'
+    " YCM requires a compatible Vim with Python 3 and a separate native build.
+    if has('python3')
+        Plugin 'ycm-core/YouCompleteMe'
+    endif
+    Plugin 'preservim/tagbar'
+    Plugin 'preservim/nerdtree'
+    Plugin 'preservim/nerdcommenter'
+    Plugin 'nathanaelkane/vim-indent-guides'
+    call vundle#end()
+endif
+" Bundled theme and statusline fixes travel with the configuration.
+if isdirectory(s:config_dir . '/colors')
+    let s:color_runtime = escape(s:config_dir, ' ,\\')
+    let &runtimepath = s:color_runtime . ',' . join(filter(split(&runtimepath, ','), 'v:val !=# s:color_runtime'), ',')
+endif
+filetype plugin indent on
+syntax enable
+
+set history=500
+set lazyredraw magic
+set browsedir=buffer
+set whichwrap=b,s,h,l,<,>,~,[,]
+set shortmess=atI
+set report=0
+let &fillchars = 'vert: ,stl: ,stlnc: '
+set completeopt=menu,menuone
+" Continuations add one shiftwidth: expressions (+s), parentheses ((s),
+" nested parentheses (us). U1 keeps that rule after a standalone opening '('.
+set cinoptions=>4,e0,n0,f0,{0,}0,^0,:s,=s,l0,gs,hs,ps,ts,+s,c3,C0,(s,us,U1,w0,m0,j0,)100,*100
+set confirm hidden
+set number numberwidth=4
+set cursorline
+set showcmd ruler laststatus=2
+" ManShow builds a local statusline using +=. An empty local value inherits
+" the global value, so a nonempty fallback would be prepended to its layout.
+if !empty(globpath(&runtimepath, 'plugin/ManShow.vim', 0, 1))
+    let &g:statusline = ''
+    let &l:statusline = ''
+    if exists('#PortableManShowStatusline#BufEnter')
+        doautocmd <nomodeline> PortableManShowStatusline BufEnter
+    elseif exists('#Statusline#BufEnter')
+        " Compatibility with an older installed ManShow copy.
+        doautocmd <nomodeline> Statusline BufEnter
+    endif
+else
+    set statusline=%<%f\ %h%m%r%=%{&fileencoding}\ [%{&fileformat}]\ %l:%c\ %P
+endif
+set backspace=indent,eol,start
+set wildmenu wildmode=list:longest,full
+set ignorecase smartcase incsearch hlsearch
+set showmatch matchtime=2
+set scrolloff=3
+set autoindent
+set tabstop=4 softtabstop=4 shiftwidth=4 noexpandtab smarttab
+set linebreak
+set listchars=tab:>-,trail:.,extends:>,precedes:<
+set noerrorbells novisualbell
+if exists('+t_vb')
+    set t_vb=
+endif
+if has('mouse')
+    set mouse=a
+    set selection=exclusive selectmode=mouse,key
+endif
+if has('clipboard')
+    if has('unnamedplus')
+        set clipboard=unnamed,unnamedplus
+    else
+        set clipboard=unnamed
+    endif
+endif
+set foldenable foldlevel=99 foldmethod=manual
+set foldopen-=search
+set foldopen-=undo
+set tags=./tags;,tags
+set path+=**
+" Follow the active file directory for relative :edit/:split/:tabedit paths.
+set autochdir
+" Keep Vim's normal swap/writebackup protection; do not edit files on save.
+set swapfile writebackup nobackup
+if has('viminfo')
+    set viminfo='1000,f1,<500,s10,h
+endif
+if exists('+sessionoptions')
+    set sessionoptions+=unix,slash
+    set sessionoptions-=help
+endif
+
+" Optional persistent undo; avoid creating directories during startup.
+if has('persistent_undo') && isdirectory(s:home . '/undo')
+    let &undodir = s:home . '/undo//'
+    set undofile
+endif
+" Use the theme's RGB colors in terminals with true-color support.
+if !has('gui_running') && exists('+termguicolors')
+    set termguicolors
+endif
+set background=dark
+let s:theme = has('gui_running') ? 'ManShow' : 'molokai'
+if index(getcompletion('', 'color'), s:theme) >= 0
+    execute 'colorscheme ' . s:theme
+else
+    colorscheme desert
+endif
+if has('gui_running')
+    set guioptions-=T
+    set guioptions-=m
+    set guioptions-=l
+    set guioptions-=L
+    set guioptions-=r
+    set guioptions-=R
+    set linespace=1
+    if s:windows
+        set guifont=Consolas:h11
+    elseif s:mac
+        set guifont=Menlo:h18
+    else
+        set guifont=Monospace\ 12
+    endif
+endif
+
+function! s:PluginCommand(command) abort
+    let l:name = matchstr(a:command, '^\S\+')
+    if exists(':' . l:name) == 2
+        execute a:command
+    else
+        echohl WarningMsg
+        echom 'Optional plugin command unavailable: ' . l:name
+        echohl None
+    endif
+endfunction
+
+" Edit and reload the maintained configuration rather than the small ~/.vimrc
+" loader.  Override this path only when embedding this file elsewhere.
+let g:portable_vim_config_file = get(g:, 'portable_vim_config_file',
+            \ s:config_dir . '/dotvimrc')
+function! s:EditVimConfig() abort
+    execute 'edit ' . fnameescape(g:portable_vim_config_file)
+endfunction
+command! EditVimConfig call <SID>EditVimConfig()
+" Source from the command itself so reloading never redefines an active function.
+command! -bar ReloadVimConfig execute 'source ' . fnameescape(g:portable_vim_config_file)
+
+" Keep original navigation shortcuts; use nonrecursive, mode-specific maps.
+nnoremap <leader>w :write<CR>
+nnoremap <leader>ev :EditVimConfig<CR>
+nnoremap <leader>nh :nohlsearch<CR>
+nnoremap <leader>bd :bdelete<CR>
+nnoremap <leader>bn :bnext<CR>
+nnoremap <leader>bp :bprevious<CR>
+nnoremap <leader>vn :vnew<CR>
+nnoremap <leader>hs :split<CR>
+nnoremap <leader>vs :vsplit<CR>
+nnoremap <leader>mk :make<CR>
+nnoremap <leader>mc :make clean<CR>
+nnoremap <leader>gg gg=G
+nnoremap <leader>gw gg=G:write<CR>
+nnoremap <leader>nu :setlocal number<CR>
+nnoremap <leader>nn :setlocal nonumber<CR>
+nnoremap <leader>rn :setlocal relativenumber<CR>
+nnoremap <leader>rN :setlocal norelativenumber<CR>
+nnoremap <leader>cu :setlocal cursorcolumn!<CR>
+nnoremap <leader>fc :setlocal foldcolumn=1<CR>
+nnoremap <leader>fC :setlocal foldcolumn=0<CR>
+nnoremap <expr> <Space> foldclosed('.') < 0 ? 'zc' : 'zo'
+inoremap jj <Esc>
+nnoremap <leader>tc :tabclose<CR>
+nnoremap <leader>te :tabnew<CR>:edit<Space>
+nnoremap <leader>tf :tabfirst<CR>
+nnoremap <leader>tl :tablast<CR>
+nnoremap <leader>tm :tabmove<CR>
+nnoremap <leader>tw :tabnew<CR>
+nnoremap <leader>tn :tabnext<CR>
+nnoremap <leader>tN :tabprevious<CR>
+nnoremap <leader>tp :tabprevious<CR>
+nnoremap <leader>to :tabonly<CR>
+nnoremap <C-p> :tabprevious<CR>
+nnoremap <C-n> :tabnext<CR>
+nnoremap <M-h> <C-w>h
+nnoremap <M-j> <C-w>j
+nnoremap <M-k> <C-w>k
+nnoremap <M-l> <C-w>l
+nnoremap <F5> :call <SID>PluginCommand('TagbarToggle')<CR>
+nnoremap <F10> :Sexplore!<CR>
+nnoremap <leader>nt :call <SID>PluginCommand('NERDTreeToggle')<CR>
+nnoremap <leader>yd :call <SID>PluginCommand('YcmCompleter GoToDefinitionElseDeclaration')<CR>
+nnoremap <leader>ya :call <SID>PluginCommand('YcmCompleter GoToDeclaration')<CR>
+nnoremap <leader>yr :call <SID>PluginCommand('YcmCompleter GoToReferences')<CR>
+nnoremap <leader>yt :call <SID>PluginCommand('YcmCompleter GetType')<CR>
+nnoremap <leader>yx :call <SID>PluginCommand('YcmCompleter FixIt')<CR>
+nnoremap <leader>yi :call <SID>PluginCommand('YcmCompleter GoToInclude')<CR>
+nnoremap <leader>yh :call <SID>PluginCommand('YcmCompleter GoToAlternateFile')<CR>
+nnoremap <leader>yl :call <SID>PluginCommand('YcmDiags')<CR>
+nnoremap <leader>ye :call <SID>PluginCommand('YcmShowDetailedDiagnostic')<CR>
+nnoremap <leader>yk :call <SID>PluginCommand('YcmCompleter GetDoc')<CR>
+command! -nargs=1 FindSymbol call <SID>PluginCommand('YcmCompleter GoToSymbol ' . escape(<q-args>, '|\'))
+nnoremap <leader>ys :FindSymbol<Space>
+
+" Rename only after an explicit new C identifier is supplied.
+function! s:RenameSymbol(name) abort
+    if a:name !~# '^[A-Za-z_][A-Za-z0-9_]*$'
+        echohl WarningMsg
+        echom 'RenameSymbol requires a C identifier (letters, digits, underscore)'
+        echohl None
+        return
+    endif
+    call s:PluginCommand('YcmCompleter RefactorRename ' . a:name)
+endfunction
+command! -nargs=1 RenameSymbol call <SID>RenameSymbol(<q-args>)
+nnoremap <leader>yR :RenameSymbol<Space>
+
+" Formatting is explicit; keep the selected range when passing it to YCM.
+function! s:YcmFormat(first, last) abort
+    if exists(':YcmCompleter') == 2
+        execute a:first . ',' . a:last . 'YcmCompleter Format'
+    else
+        echohl WarningMsg
+        echom 'Optional plugin command unavailable: YcmCompleter'
+        echohl None
+    endif
+endfunction
+command! -range=% FormatCode call <SID>YcmFormat(<line1>, <line2>)
+nnoremap <leader>yf :FormatCode<CR>
+xnoremap <leader>yf :FormatCode<CR>
+
+" Keep the existing project :make mappings and compiler options intact.
+nnoremap <leader>qn :cnext<CR>
+nnoremap <leader>qp :cprevious<CR>
+nnoremap <leader>qo :copen<CR>
+nnoremap <leader>qc :cclose<CR>
+nnoremap <leader>qb :colder<CR>
+nnoremap <leader>qf :cnewer<CR>
+nnoremap <leader>ln :lnext<CR>
+nnoremap <leader>lp :lprevious<CR>
+nnoremap <leader>lo :lopen<CR>
+nnoremap <leader>lc :lclose<CR>
+nnoremap <leader>lb :lolder<CR>
+nnoremap <leader>lf :lnewer<CR>
+
+" Use Vim's shipped list filter; each filtering operation keeps list history.
+if exists(':Cfilter') != 2 && exists(':packadd') == 2
+            \ && !empty(globpath(&packpath, 'pack/*/opt/cfilter/plugin/cfilter.vim'))
+    packadd cfilter
+endif
+if exists(':Cfilter') == 2
+    nnoremap <leader>qg :Cfilter<Space>
+endif
+if exists(':Lfilter') == 2
+    nnoremap <leader>lg :Lfilter<Space>
+endif
+
+" Explicit whitespace cleanup preserves Markdown hard breaks until requested.
+function! s:TrimWhitespace() abort
+    if !&modifiable || &binary || &filetype ==# 'diff'
+        return
+    endif
+    let l:view = winsaveview()
+    try
+        let l:lines = getline(1, '$')
+        let l:clean = map(copy(l:lines), 'substitute(v:val, "\\s\\+$", "", "")')
+        if l:clean !=# l:lines
+            call setline(1, l:clean)
+        endif
+    finally
+        call winrestview(l:view)
+    endtry
+endfunction
+command! TrimWhitespace call <SID>TrimWhitespace()
+
+" Universal and Exuberant ctags both accept these options (no obsolete extras).
+function! s:BuildTags() abort
+    if !executable('ctags')
+        echoerr 'ctags is not in PATH'
+        return
+    endif
+    let l:version = system('ctags --version')
+    if l:version !~# '\(Universal\|Exuberant\) Ctags'
+        echoerr 'Install Universal or Exuberant ctags; system BSD ctags is unsupported'
+        return
+    endif
+    let l:output = system('ctags -R --c-kinds=+p --c++-kinds=+p --fields=+iaS .')
+    if v:shell_error
+        echoerr l:output
+    else
+        echom 'Updated tags in ' . getcwd()
+    endif
+endfunction
+command! BuildTags call <SID>BuildTags()
+nnoremap <F12> :BuildTags<CR>
+nnoremap <C-F12> :BuildTags<CR>
+
+function! s:RestorePosition() abort
+    if &buftype ==# '' && &filetype !~# '^\(gitcommit\|gitrebase\)$'
+        let l:line = line("'\"")
+        if l:line > 0 && l:line <= line('$')
+            normal! g`"
+        endif
+    endif
+endfunction
+" Diagnose search-limit effects without reindenting the buffer. A long block
+" alone is not an error: warn only if a longer search changes cindent().
+function! s:CheckCIndentLimit(manual) abort
+    if &buftype !=# '' || &filetype !~# '^\%(c\|cpp\)$'
+                \ || !&l:cindent || !empty(&l:indentexpr) || !empty(&l:equalprg)
+        if a:manual
+            echom 'CIndentCheck requires C/C++ with builtin cindent'
+        endif
+        return
+    endif
+    let l:key = [b:changedtick, line('.'), &l:cinoptions]
+    if !a:manual && get(b:, 'portable_cindent_last_check', []) ==# l:key
+        return
+    endif
+    let b:portable_cindent_last_check = l:key
+    let l:original = &l:cinoptions
+    let l:options = split(l:original, ',')
+    let l:limits = []
+    for l:i in range(len(l:options))
+        if l:options[l:i] =~# '^[)*][0-9]\+$'
+            let l:limit = str2nr(strpart(l:options[l:i], 1))
+            if l:limit > 0 && l:limit < line('.')
+                call add(l:limits, l:options[l:i])
+                let l:options[l:i] = strpart(l:options[l:i], 0, 1) . line('.')
+            endif
+        endif
+    endfor
+    let l:normal = cindent(line('.'))
+    let l:extended = l:normal
+    if !empty(l:limits)
+        try
+            let &l:cinoptions = join(l:options, ',')
+            let l:extended = cindent(line('.'))
+        finally
+            let &l:cinoptions = l:original
+        endtry
+    endif
+    if l:normal != l:extended
+        echohl WarningMsg
+        echom printf('C indent: line %d may exceed search limits [%s]: %d -> %d columns with longer search',
+                    \ line('.'), join(l:limits, ','), l:normal, l:extended)
+        echohl None
+    elseif a:manual
+        echom 'C indent: no search-limit difference detected on the current line'
+    endif
+endfunction
+command! CIndentCheck call <SID>CheckCIndentLimit(1)
+augroup PortableCIndentLimit
+    autocmd!
+    autocmd CursorHold * call <SID>CheckCIndentLimit(0)
+augroup END
+augroup PortableVim
+    autocmd!
+    autocmd BufReadPost * call <SID>RestorePosition()
+    autocmd FileType c,cpp,java setlocal foldmethod=syntax
+    autocmd FileType perl,tex,php,html,css,sh,python setlocal foldmethod=indent
+    autocmd FileType python setlocal expandtab
+    autocmd FileType make setlocal noexpandtab
+    autocmd FileType c,cpp setlocal cindent
+augroup END
+
+if has('cscope') && executable('cscope')
+    set cscopequickfix=s-,c-,d-,i-,t-,e-
+    set cscopetag cscopeprg=cscope
+    " Load explicitly: :cs add /path/to/cscope.out (no duplicate adds on reload).
+endif
+if executable('rg')
+    set grepprg=rg\ --vimgrep\ --smart-case
+    set grepformat=%f:%l:%c:%m
+elseif executable('grep')
+    set grepprg=grep\ -nH
+    set grepformat=%f:%l:%m
+endif
+
+" Rotate only installed themes; the list can be overridden in vimrc.local.
+let g:portable_vim_themes = get(g:, 'portable_vim_themes',
+            \ ['Celibate', 'ekvoli', 'candyman', 'mayansmoke', 'inkpot',
+            \ 'ron', 'murphy', 'pablo', 'desert', 'vilight', 'void',
+            \ 'softbluev2', 'thegoodluck', 'torte'])
+function! PortableVimRotateTheme() abort
+    let l:available = getcompletion('', 'color')
+    let l:themes = filter(copy(g:portable_vim_themes),
+                \ 'index(l:available, v:val) >= 0')
+    if empty(l:themes)
+        echohl WarningMsg
+        echom 'No configured colorschemes are installed'
+        echohl None
+        return
+    endif
+    let l:index = index(l:themes, get(g:, 'colors_name', ''))
+    let l:next = l:themes[(l:index + 1) % len(l:themes)]
+    execute 'colorscheme ' . fnameescape(l:next)
+    echom 'Colorscheme: ' . l:next
+endfunction
+command! RotateColorTheme call PortableVimRotateTheme()
+nnoremap <silent> <C-F9> :RotateColorTheme<CR>
+
+" Read-only hover information. No translation or external network requests.
+" Arguments make the formatter usable independently of the mouse event.
+function! PortableVimBalloon(bufnr, winnr, lnum, col, word) abort
+    if !bufexists(a:bufnr)
+        return ''
+    endif
+    let l:lines = []
+    " foldclosed() and spell checks depend on the current window options.
+    " Never switch windows inside balloonexpr (Vim's textlock).
+    if a:bufnr == bufnr('%') && a:winnr == winnr()
+        let l:first = foldclosed(a:lnum)
+        if l:first >= 0
+            let l:last = foldclosedend(a:lnum)
+            if l:last - l:first + 1 <= 31
+                let l:lines = getbufline(a:bufnr, l:first, l:last)
+            else
+                let l:lines = getbufline(a:bufnr, l:first, l:first + 14)
+                call add(l:lines, '-- Snipped ' . (l:last - l:first + 1 - 30) . ' lines --')
+                call extend(l:lines, getbufline(a:bufnr, l:last - 14, l:last))
+            endif
+            return join(l:lines, has('balloon_multiline') ? "\n" : ' ')
+        endif
+        " Spelling is opt-in via :setlocal spell; no spell defaults are set.
+        if &l:spell && !empty(a:word) && !empty(spellbadword(a:word)[0])
+            let l:suggestions = spellsuggest(a:word, 5)
+            if !empty(l:suggestions)
+                return join(l:suggestions, has('balloon_multiline') ? "\n" : ' ')
+            endif
+            return ''
+        elseif exists('*BalloonDeclaration') && v:beval_bufnr == a:bufnr
+                    \ && v:beval_winnr + 1 == a:winnr && v:beval_lnum == a:lnum
+                    \ && v:beval_col == a:col && v:beval_text ==# a:word
+            " Preserve echofunc's original declaration lookup for real hover events.
+            try
+                return BalloonDeclaration()
+            catch /^Vim\%((\a\+)\)\=:E/
+                " Fall back to tags if the optional declaration plugin fails.
+            endtry
+        endif
+    endif
+    if !empty(a:word)
+        " Use the hovered buffer's tags, even if it is not the current buffer.
+        let l:tags = getbufvar(a:bufnr, '&tags')
+        if a:bufnr == bufnr('%') || l:tags ==# &l:tags
+            try
+                let l:matches = taglist('^' . escape(a:word, '\.^$~[]*') . '$', bufname(a:bufnr))
+                for l:tag in l:matches[:2]
+                    call add(l:lines, printf('Tag: %s %s — %s',
+                                \ get(l:tag, 'kind', ''), l:tag.name, l:tag.filename))
+                    if has_key(l:tag, 'signature')
+                        call add(l:lines, l:tag.signature)
+                    endif
+                endfor
+            catch /^Vim\%((\a\+)\)\=:E/
+                " Missing/stale tag files must not break hover information.
+            endtry
+        endif
+    endif
+    return join(l:lines, "\n")
+endfunction
+if exists('+balloonexpr')
+    set balloonexpr=PortableVimBalloon(v:beval_bufnr,v:beval_winnr+1,v:beval_lnum,v:beval_col,v:beval_text)
+    if exists('+ballooneval') && has('balloon_eval')
+        set ballooneval
+    endif
+    if exists('+balloonevalterm') && has('balloon_eval_term')
+        set balloonevalterm
+    endif
+endif
+
+" Remaining original editing shortcuts.
+nnoremap <M-p> :tabprevious<CR>
+nnoremap <M-n> :tabnext<CR>
+nnoremap <M-f> :tabfirst<CR>
+nnoremap <M-e> :tablast<CR>
+nnoremap <M-L> :tablast<CR>
+nnoremap <leader>bk <C-w>k:bdelete<CR>
+nnoremap <leader>bj <C-w>j:bdelete<CR>
+nnoremap <leader>bh <C-w>h:bdelete<CR>
+nnoremap <leader>bl <C-w>l:bdelete<CR>
+nnoremap <leader>me :messages<CR>
+nnoremap <C-Down> :<C-u>move .+1<CR>
+nnoremap <M-O> o<Esc>
+nnoremap <leader>j gJdw
+nnoremap <leader>mm :call <SID>RemoveCR()<CR>
+nnoremap <expr> g<Bar> float2nr(round((col('$') - 1) * min([100, v:count]) / 100.0)) . '<Bar>'
+function! s:RemoveCR() abort
+    let l:view = winsaveview()
+    silent keeppatterns %s/\r$//e
+    call winrestview(l:view)
+endfunction
+for s:direction in ['Left', 'Right', 'Up', 'Down']
+    execute 'nnoremap <silent> <S-' . s:direction . '> <C-w><' . s:direction . '>'
+    execute 'xnoremap <silent> <S-' . s:direction . '> <Esc><C-w><' . s:direction . '>'
+    execute 'inoremap <silent> <S-' . s:direction . '> <Esc><C-w><' . s:direction . '>'
+endfor
+xnoremap <M-h> <Esc><C-w>h
+xnoremap <M-j> <Esc><C-w>j
+xnoremap <M-k> <Esc><C-w>k
+xnoremap <M-l> <Esc><C-w>l
+nnoremap <M-o> <C-w>o
+" Resolve the two conflicting original insert-mode M-o maps in favor of opening a line.
+inoremap <M-o> <Esc>o
+inoremap <M-h> <Left>
+inoremap <M-j> <Down>
+inoremap <M-k> <Up>
+inoremap <M-l> <Right>
+xnoremap <silent> <leader>/ y/<C-R>=escape(@", '\/.*$^~[]')<CR><CR>
+xnoremap <silent> <leader>? y?<C-R>=escape(@", '\/?*.$^~[]')<CR><CR>
+nnoremap <leader>G :PortableGrep<Space>
+command! -nargs=+ PortableGrep execute 'silent grep! ' . <q-args> | copen
+" Recursive mappings are necessary for plugin <Plug> targets.
+nmap <M-/> <Plug>NERDCommenterToggle
+xmap <M-/> <Plug>NERDCommenterToggle
+imap <M-/> <C-o><Plug>NERDCommenterToggle
+
+" Use a small source-only allowlist for automatic cleanup; never trim Markdown.
+let g:portable_vim_trim_types = get(g:, 'portable_vim_trim_types',
+            \ ['c', 'cpp', 'java', 'cs', 'vim', 'sh', 'python', 'go', 'perl', 'php', 'ruby'])
+function! s:TrimOnSave() abort
+    if index(g:portable_vim_trim_types, &l:filetype) >= 0 && !get(b:, 'portable_preserve_whitespace', 0) && !get(b:, 'portable_editorconfig_preserve_whitespace', 0)
+        call s:TrimWhitespace()
+        " Remove extra final blank lines for source files, retaining one newline.
+        while line('$') > 1 && getline('$') ==# ''
+            silent! undojoin
+            call deletebufline('%', line('$'))
+        endwhile
+    endif
+endfunction
+
+" Unicode-safe clickable tab labels and real-path GUI metadata.
+" The maintained dotvimrc places fold starts and their closing commands in
+" column one. Cache its fold ranges per edit instead of scanning Vim syntax.
+function! s:ConfigFold(lnum) abort
+    if get(b:, 'portable_config_fold_tick', -1) != b:changedtick
+        let l:lines = getline(1, '$')
+        let l:levels = repeat([0], len(l:lines))
+        let l:closing = {'function': 'endfunction', 'if': 'endif',
+                    \ 'for': 'endfor', 'while': 'endwhile', 'try': 'endtry'}
+        let l:start = -1
+        let l:end = ''
+        for l:index in range(len(l:lines))
+            let l:text = l:lines[l:index]
+            let l:word = matchstr(l:text, '^\h\w*')
+            if l:start < 0
+                if has_key(l:closing, l:word)
+                    let l:end = l:closing[l:word]
+                    if l:text !~# '|\s*' . l:end . '\>'
+                        let l:start = l:index
+                    endif
+                endif
+            elseif l:word ==# l:end
+                let l:levels[l:start] = '>1'
+                for l:inner in range(l:start + 1, l:index - 1)
+                    let l:levels[l:inner] = 1
+                endfor
+                let l:levels[l:index] = '<1'
+                let l:start = -1
+            endif
+        endfor
+        let b:portable_config_fold_levels = l:levels
+        let b:portable_config_fold_tick = b:changedtick
+    endif
+    return b:portable_config_fold_levels[a:lnum - 1]
+endfunction
+
+" Keep Vim's function syntax folds; add column-zero control blocks separately.
+function! s:VimFolds() abort
+    if resolve(expand('%:p')) ==# resolve(fnamemodify(g:portable_vim_config_file, ':p'))
+        let &l:foldexpr = expand('<SID>') . 'ConfigFold(v:lnum)'
+        setlocal foldmethod=expr foldtext=foldtext() foldnestmax=1
+        return
+    endif
+    setlocal foldmethod=syntax foldtext=foldtext() foldnestmax=1
+    silent! syntax clear PortableVimIfFold PortableVimForFold PortableVimWhileFold PortableVimTryFold
+    syntax region PortableVimIfFold transparent fold keepend start="^if\>" end="^endif\>" contains=TOP
+    syntax region PortableVimForFold transparent fold keepend start="^for\>" end="^endfor\>" contains=TOP
+    syntax region PortableVimWhileFold transparent fold keepend start="^while\>" end="^endwhile\>" contains=TOP
+    syntax region PortableVimTryFold transparent fold keepend start="^try\>" end="^endtry\>" contains=TOP
+    syntax sync fromstart
+endfunction
+
+function! ShortTabLine() abort
+    let l:result = ''
+    for l:n in range(1, tabpagenr('$'))
+        let l:buf = tabpagebuflist(l:n)[tabpagewinnr(l:n) - 1]
+        let l:name = fnamemodify(bufname(l:buf), ':t')
+        let l:name = empty(l:name) ? 'noname' : l:name
+        let l:name = strchars(l:name) >= 8 ? strcharpart(l:name, 0, 6) . '..' : l:name
+        let l:name = substitute(l:name, '%', '%%', 'g')
+        let l:result .= (l:n == tabpagenr() ? '%#ErrorMsg#' : '%#TabLine#')
+                    \ . '%' . l:n . 'T[' . l:name . ']'
+    endfor
+    return l:result . '%#TabLineFill#%T'
+endfunction
+set tabline=%!ShortTabLine()
+function! FileInfo() abort
+    let l:file = expand('%:p')
+    let l:time = getftime(l:file)
+    return printf('[%s] %s %s', getftype(l:file), getfperm(l:file),
+                \ l:time < 0 ? '' : strftime('(%c)', l:time))
+endfunction
+if exists('+guitabtooltip')
+    set guitabtooltip=%{FileInfo()}\ %{getcwd()}
+endif
+cabbr csc colorscheme Celibate
+cabbr csm colorscheme ManShow
+function! s:Highlights() abort
+    highlight OverLength ctermbg=red ctermfg=white guibg=red guifg=white
+    if &background ==# 'light'
+        highlight IndentGuidesOdd guibg=#d2e2c9 ctermbg=252
+        highlight IndentGuidesEven guibg=#c8d9bf ctermbg=250
+    else
+        highlight IndentGuidesOdd guibg=Grey20 ctermbg=3
+        highlight IndentGuidesEven guibg=Grey25 ctermbg=4
+    endif
+endfunction
+function! s:LongLines() abort
+    if exists('w:portable_long_lines')
+        silent! call matchdelete(w:portable_long_lines)
+        unlet w:portable_long_lines
+    endif
+    if index(['c', 'cpp'], &l:filetype) < 0
+        return
+    endif
+    let w:portable_long_lines = matchadd('OverLength', '\%101v.*')
+endfunction
+call s:Highlights()
+call s:LongLines()
+
+" Manual signs use a dedicated group; filenames and unrelated plugin signs are safe.
+if has('signs')
+    sign define PortableSA text=<> texthl=SignColumn linehl=Search
+    sign define PortableSR text=-> texthl=SignColumn linehl=NonText
+    sign define PortableSV text=>> texthl=SignColumn linehl=Folded
+    sign define PortableSX text=!! texthl=WarningMsg
+    sign define PortableSO text=** texthl=Search
+    for [s:key, s:id, s:name] in [['sa', 1, 'PortableSA'], ['sr', 3, 'PortableSR'],
+                \ ['sv', 2, 'PortableSV'], ['sx', 4, 'PortableSX'], ['so', 14, 'PortableSO']]
+        execute 'nnoremap <leader>' . s:key . ' :call sign_place(' . s:id
+                    \ . ', "PortableVim", "' . s:name . '", bufnr("%"), {"lnum": line(".")})<CR>'
+    endfor
+    for [s:key, s:id] in [['jsa', 1], ['jsv', 2], ['jso', 14]]
+        execute 'nnoremap <leader>' . s:key . ' :call sign_jump(' . s:id . ', "PortableVim", bufnr("%"))<CR>'
+    endfor
+    nnoremap <leader>sS :call sign_unplace('PortableVim')<CR>
+    for [s:key, s:id] in [['sC', 1], ['sV', 2], ['sR', 3], ['sG', 4]]
+        execute 'nnoremap <leader>' . s:key . ' :call sign_unplace("PortableVim", {"id": ' . s:id . '})<CR>'
+    endfor
+endif
+function! s:TagTab() abort
+    let l:word = expand('<cword>')
+    if empty(l:word)
+        return
+    endif
+    execute 'tab split'
+    try
+        execute 'tselect ' . escape(l:word, ' |\\')
+    catch
+        tabclose
+        echohl WarningMsg | echom v:exception | echohl None
+    endtry
+endfunction
+nnoremap <leader>tcw :call <SID>TagTab()<CR>
+
+" Compile first; run only on success. Separate scratch output avoids shell injection.
+function! PortableVimCompileRun(cpp) abort
+    if empty(expand('%:p')) || &buftype !=# ''
+        echoerr 'Save a source file before compiling'
+        return
+    endif
+    let l:compiler = a:cpp ? 'g++' : 'gcc'
+    if !executable(l:compiler)
+        let l:compiler = a:cpp ? 'clang++' : 'clang'
+    endif
+    if !executable(l:compiler)
+        echoerr 'No C/C++ compiler is available in PATH'
+        return
+    endif
+    write
+    let l:source = expand('%:p')
+    let l:dir = tempname()
+    call mkdir(l:dir)
+    let l:exe = l:dir . (s:windows ? '/program.exe' : '/program')
+    try
+        let l:output = system(shellescape(l:compiler) . ' ' . shellescape(l:source)
+                    \ . ' -o ' . shellescape(l:exe) . ' 2>&1')
+        let l:status = v:shell_error
+        if l:status == 0
+            let l:output .= system(shellescape(l:exe) . ' 2>&1')
+            let l:status = v:shell_error
+        endif
+        botright new
+        setlocal buftype=nofile bufhidden=wipe noswapfile
+        call setline(1, [printf('Compile/run exit status: %d', l:status)] + split(l:output, "\n", 1))
+        setlocal nomodifiable nomodified
+    finally
+        call delete(l:exe)
+        call delete(l:dir, 'd')
+    endtry
+endfunction
+nnoremap <C-F5> :call PortableVimCompileRun(0)<CR>
+nnoremap <C-F6> :call PortableVimCompileRun(1)<CR>
+
+function! s:BuildCscope() abort
+    if !executable('cscope')
+        echoerr 'cscope is not in PATH'
+        return
+    endif
+    let l:output = system('cscope -b -R 2>&1')
+    if v:shell_error
+        echoerr l:output
+    elseif has('cscope')
+        call s:LoadCscope()
+    endif
+endfunction
+function! s:LoadCscope() abort
+    if !has('cscope') || !executable('cscope')
+        return
+    endif
+    let l:db = filereadable('cscope.out') ? fnamemodify('cscope.out', ':p') : expand($CSCOPE_DB)
+    if !empty(l:db) && filereadable(l:db) && !cscope_connection(2, l:db)
+        let l:old_env = $PORTABLE_VIM_CSCOPE_DB
+        try
+            let $PORTABLE_VIM_CSCOPE_DB = l:db
+            silent cs add $PORTABLE_VIM_CSCOPE_DB
+        catch /^Vim\%((\a\+)\)\=:E/
+            echohl WarningMsg
+            echom 'cscope database could not be loaded: ' . v:exception
+            echohl None
+        finally
+            let $PORTABLE_VIM_CSCOPE_DB = l:old_env
+        endtry
+    endif
+endfunction
+command! BuildCscope call <SID>BuildCscope()
+nnoremap <leader>cs :BuildCscope<CR>
+for [s:key, s:query, s:target] in [
+            \ ['s', 's', '<cword>'], ['g', 'g', '<cword>'],
+            \ ['c', 'c', '<cword>'], ['t', 't', '<cword>'],
+            \ ['e', 'e', '<cword>'], ['d', 'd', '<cword>'],
+            \ ['f', 'f', '<cfile>'], ['i', 'i', '<cfile>']]
+    execute 'nnoremap <silent> <C-\>' . s:key . ' :<C-U>cs find ' . s:query
+                \ . ' <C-R>=expand("' . s:target . '")<CR><CR>'
+endfor
+call s:LoadCscope()
+
+" Explicit debugger console; argv avoids shell interpretation of program paths.
+function! s:DebugProgram(file) abort
+    if !exists('*term_start')
+        echohl WarningMsg | echom 'DebugProgram requires Vim terminal support' | echohl None
+        return
+    endif
+    let l:file = fnamemodify(a:file, ':p')
+    if !filereadable(l:file)
+        echohl WarningMsg | echom 'Debug program not found: ' . l:file | echohl None
+        return
+    endif
+    let l:debugger = get(g:, 'portable_vim_debugger', '')
+    if empty(l:debugger)
+        for l:candidate in (s:mac ? ['lldb', 'gdb'] : ['gdb', 'lldb'])
+            if executable(l:candidate)
+                let l:debugger = exepath(l:candidate)
+                break
+            endif
+        endfor
+    endif
+    if empty(l:debugger) || !executable(l:debugger)
+        echohl WarningMsg | echom 'No GDB/LLDB debugger found; set g:portable_vim_debugger' | echohl None
+        return
+    endif
+    botright new
+    let l:opts = {'curwin': 1, 'term_highlight': 'Normal',
+                \ 'term_name': 'Debugger: ' . fnamemodify(l:file, ':t'),
+                \ 'term_finish': 'open'}
+    " A user palette overrides the active theme palette.  Restrict this to
+    " debugger terminals so program and sanitizer ANSI output stays unchanged.
+    let l:palette = get(g:, 'portable_vim_debugger_ansi_colors',
+                \ get(g:, 'portable_vim_debugger_theme_ansi_colors', []))
+    if type(l:palette) == v:t_list && len(l:palette) == 16
+        let l:opts.ansi_colors = copy(l:palette)
+    endif
+    let l:buffer = term_start([l:debugger, '--', l:file], l:opts)
+    if l:buffer == 0
+        close
+        echohl WarningMsg | echom 'Failed to start debugger' | echohl None
+    endif
+endfunction
+command! -nargs=1 -complete=file DebugProgram call <SID>DebugProgram(<f-args>)
+nnoremap <leader>db :DebugProgram<Space>
+
+" GUI operations are guarded; native MacVim fullscreen replaces DLL calls there.
+if has('gui_running')
+    nnoremap <leader>tt :winpos 0 0<CR>
+    nnoremap <leader>sw :set columns=120 lines=65<CR>
+    nnoremap <leader>sW :set columns=85 lines=40<CR>
+    nnoremap <leader>sl :set lines=50<CR>
+    nnoremap <leader>sL :set lines=30<CR>
+    for [s:key, s:flag] in [['gm', 'm'], ['gt', 'T'], ['gl', 'l'], ['gr', 'r'], ['gb', 'b']]
+        execute 'nnoremap <leader>' . s:key . ' :call <SID>ToggleGUI("' . s:flag . '")<CR>'
+    endfor
+    nnoremap <leader>sk :call <SID>Sketch()<CR>
+    if exists('+fullscreen')
+        nnoremap <F11> :set fullscreen!<CR>
+    elseif s:windows
+        let s:fullscreen_dll = get(g:, 'portable_vim_fullscreen_dll', '')
+        if filereadable(s:fullscreen_dll)
+            nnoremap <F11> :call libcallnr(g:portable_vim_fullscreen_dll, 'ToggleFullScreen', 0)<CR>
+        endif
+    endif
+    if s:windows && filereadable(get(g:, 'portable_vim_tweak_dll', ''))
+        for [s:key, s:op, s:value] in [['aw', 'SetAlpha', 128], ['aW', 'SetAlpha', 255],
+                    \ ['mw', 'EnableMaximize', 1], ['mW', 'EnableMaximize', 0],
+                    \ ['et', 'EnableTopMost', 1], ['eT', 'EnableTopMost', 0]]
+            execute 'nnoremap <leader>' . s:key . ' :call libcallnr(g:portable_vim_tweak_dll, "'
+                        \ . s:op . '", ' . s:value . ')<CR>'
+        endfor
+    endif
+endif
+function! s:Sketch() abort
+    if exists('*ToggleSketch')
+        call ToggleSketch()
+    else
+        echohl WarningMsg | echom 'ToggleSketch() is not installed' | echohl None
+    endif
+endfunction
+function! s:ToggleGUI(flag) abort
+    let &guioptions = stridx(&guioptions, a:flag) >= 0
+                \ ? substitute(&guioptions, a:flag, '', 'g') : &guioptions . a:flag
+endfunction
+function! s:Explorer() abort
+    let l:file = expand('%:p')
+    if empty(l:file)
+        return
+    endif
+    if s:windows
+        execute 'silent !explorer.exe /select,' . shellescape(l:file)
+    elseif s:mac && executable('open')
+        execute 'silent !open -R ' . shellescape(l:file)
+    elseif executable('xdg-open')
+        execute 'silent !xdg-open ' . shellescape(fnamemodify(l:file, ':h'))
+    endif
+endfunction
+command! Explorer call <SID>Explorer()
+command! Explor call <SID>Explorer()
+nnoremap <C-F11> :Explorer<CR>
+inoremap <C-F11> <C-o>:Explorer<CR>
+if has('printer')
+    set printencoding=utf-8
+    set printoptions=formfeed:y,header:5,paper:A4,duplex:on,syntax:y
+    set printheader=%<%f%h%m%=Page\ %N
+    if has('postscript')
+        set printmbcharset=ISO10646
+        if s:windows
+            set printmbfont=r:MicrosoftYaHei,b:SimSun,i:KaiTi,o:FangSong,c:yes
+        endif
+    endif
+endif
+
+" Binary hex mode uses a temporary buffer and Vim's normal writebackup path.
+" Failed decoding never overwrites the target; the visible hex buffer is preserved.
+function! s:HexRead() abort
+    if !executable('xxd') || !filereadable(expand('%:p'))
+        return
+    endif
+    let l:hex = system('xxd ' . shellescape(expand('%:p')))
+    if v:shell_error
+        echoerr 'xxd failed to read this file'
+        return
+    endif
+    call setline(1, split(l:hex, "\n"))
+    if line('$') > len(split(l:hex, "\n")) && !empty(l:hex)
+        call deletebufline('%', len(split(l:hex, "\n")) + 1, '$')
+    endif
+    setlocal binary filetype=xxd nomodified
+    let b:portable_hex = 1
+endfunction
+function! s:HexWrite(target) abort
+    if !get(b:, 'portable_hex', 0)
+        execute 'noautocmd write ' . fnameescape(a:target)
+        return
+    endif
+    if &readonly
+        echoerr 'Binary buffer is readonly'
+        return
+    endif
+    " xxd -r silently skips malformed lines: reject them before decoding.
+    for l:line in getline(1, '$')
+        if !empty(l:line) && l:line !~# '^\x\{8,}: \%([0-9A-Fa-f ]\)\{1,40}\%($\|  \)'
+            echoerr 'Malformed xxd line; binary file was not written'
+            return
+        endif
+    endfor
+    let l:tmp = tempname()
+    let l:origin = win_getid()
+    let l:buffer = bufnr('%')
+    let l:name = bufname('%')
+    let l:modified = &modified
+    let l:written = 0
+    let l:renamed = 0
+    let l:scratch = -1
+    try
+        call system('xxd -r > ' . shellescape(l:tmp), join(getline(1, '$'), "\n") . "\n")
+        if v:shell_error
+            throw 'xxd decoding failed'
+        endif
+        " An isolated raw buffer preserves the visible hex buffer's undo history.
+        execute 'silent noautocmd keepalt file ' . fnameescape(l:tmp . '.hex')
+        let l:renamed = 1
+        noautocmd keepalt botright new
+        execute 'silent noautocmd keepalt edit ++bin ' . fnameescape(l:tmp)
+        let l:scratch = bufnr('%')
+        setlocal binary nofixendofline noswapfile
+        if filereadable(a:target) && filewritable(a:target) != 1
+            throw 'Binary target is not writable'
+        endif
+        execute 'silent noautocmd write! ' . fnameescape(a:target)
+        let l:written = 1
+    finally
+        if l:scratch >= 0 && bufexists(l:scratch)
+            execute 'silent noautocmd bwipeout! ' . l:scratch
+        endif
+        noautocmd call win_gotoid(l:origin)
+        if l:renamed
+            execute 'silent noautocmd keepalt file ' . fnameescape(l:name)
+        endif
+        call setbufvar(l:buffer, '&modified', l:written ? 0 : l:modified)
+        call delete(l:tmp)
+    endtry
+endfunction
+
+augroup PortableVimRetained
+    autocmd!
+    autocmd ColorSchemePre * unlet! g:portable_vim_debugger_theme_ansi_colors
+    autocmd ColorScheme * call <SID>Highlights()
+    autocmd WinEnter * call <SID>LongLines()
+    autocmd BufEnter,FileType * call <SID>LongLines()
+    autocmd WinLeave * setlocal nocursorcolumn
+    autocmd BufWritePre * call <SID>TrimOnSave()
+    autocmd FileType c,cpp,java,html,xml,sh,perl,php setlocal textwidth=78
+    autocmd FileType c,cpp,java,html,xml,sh,perl,php setlocal formatoptions+=tcroqn2mBM1
+    autocmd FileType txt,lisp setlocal foldmethod=expr | let &l:foldexpr = 'getline(v:lnum) =~ ''.'' ? 1 : 0'
+    autocmd FileType txt,lisp let &l:foldtext = 'foldtext().v:folddashes.getline(v:foldstart+1)'
+    autocmd Syntax vim call <SID>VimFolds()
+    autocmd FileType ero setlocal foldmethod=expr | let &l:foldexpr = 'getline(v:lnum) =~ ''^\S!'' && getline(v:lnum-1) !~ ''\S'' ? ''>1'' : ''='''
+    autocmd BufReadPre *.bin if executable('xxd') | setlocal binary | endif
+    autocmd BufReadPost *.bin call <SID>HexRead()
+    autocmd BufWriteCmd *.bin call <SID>HexWrite(expand('<afile>:p'))
+    autocmd BufWritePost * if resolve(fnamemodify(expand('<afile>'), ':p')) ==# resolve(fnamemodify(g:portable_vim_config_file, ':p')) | ReloadVimConfig | endif
+augroup END
+
+" Portable terminal cursor shapes; no unsupported OSC color changes.
+if !has('gui_running') && &term =~# '\(xterm\|screen\|tmux\)'
+    if exists('+t_SI')
+        let &t_SI = "\<Esc>[5 q"
+        let &t_EI = "\<Esc>[1 q"
+    endif
+    if exists('+t_SR')
+        let &t_SR = "\<Esc>[3 q"
+    endif
+endif
+
+
+" Original manually callable helpers (no automatic formatting or timestamps).
+function! Week_cn() abort
+    return '星期' . strcharpart('日一二三四五六', str2nr(strftime('%w')), 1)
+endfunction
+function! CurTime() abort
+    return ' ' . strftime('%b %d %y %H:%M:%S')
+endfunction
+function! InfoGuiTooltip() abort
+    let l:buffers = map(tabpagebuflist(), 'fnamemodify(bufname(v:val), ":t")')
+    return printf('windows: %d [%s]', tabpagewinnr(tabpagenr(), '$'), join(l:buffers, '] ['))
+endfunction
+function! ShortTabLabel() abort
+    let l:n = v:lnum > 0 ? v:lnum : tabpagenr()
+    let l:buf = tabpagebuflist(l:n)[tabpagewinnr(l:n) - 1]
+    let l:name = fnamemodify(bufname(l:buf), ':t')
+    return strchars(l:name) >= 8 ? strcharpart(l:name, 0, 6) . '..' : l:name
+endfunction
+function! ChkLargeFile() abort
+    if getfsize(expand('%:p')) > 200 * 1024
+        setlocal syntax=OFF
+    endif
+endfunction
+command! CheckLargeFile call ChkLargeFile()
+function! RemoveTrailingSpace() abort
+    if $VIM_HATE_SPACE_ERRORS !=# '0' && index(['c', 'cpp', 'vim'], &filetype) >= 0
+        call s:TrimWhitespace()
+    endif
+endfunction
+function! ClosePair(char) abort
+    return strpart(getline('.'), col('.') - 1, strlen(a:char)) ==# a:char ? "\<Right>" : a:char
+endfunction
+if has('python3')
+    " Explicit user-entered Python expression; modern replacement for Python 2 :py.
+    command! -nargs=+ PyCalc py3 import cmath; print(eval(<q-args>, vars(cmath)))
+endif
+
+
+" Legacy NFO artwork uses CP437; reload only unmodified, non-binary buffers.
+function! s:NfoEncoding() abort
+    if &l:fileencoding !=# 'cp437' && !&modified && !&binary
+        try
+            execute 'keepalt edit ++enc=cp437 ' . fnameescape(expand('%:p'))
+        catch
+            echohl WarningMsg | echom 'CP437 decoding unavailable: ' . v:exception | echohl None
+        endtry
+    endif
+endfunction
+function! CheckFileEncoding() abort
+    " The original e! on modified txt buffers discarded user edits.
+    if &modified
+        echohl WarningMsg | echom 'Modified text buffer: encoding reload skipped' | echohl None
+    endif
+endfunction
+function! s:ReloadEncoding(encoding) abort
+    if &modified
+        echoerr 'Save or discard changes before reloading the encoding'
+        return
+    endif
+    if a:encoding !~# '^[A-Za-z0-9_-]\+$' || empty(expand('%:p'))
+        echoerr 'Specify an encoding and an existing file'
+        return
+    endif
+    execute 'edit ++enc=' . a:encoding . ' ' . fnameescape(expand('%:p'))
+endfunction
+command! -nargs=1 ReloadEncoding call <SID>ReloadEncoding(<q-args>)
+augroup PortableVimEncoding
+    autocmd!
+    autocmd BufReadPost *.nfo nested call <SID>NfoEncoding()
+    autocmd BufWinEnter *.txt call CheckFileEncoding()
+augroup END
+
+" Replace machine-specific kernel/SDK paths with existing include directories.
+let s:includes = get(g:, 'portable_vim_include_paths',
+            \ s:windows ? split($INCLUDE, ';') : ['/usr/include', '/usr/local/include'])
+for s:include in s:includes
+    if isdirectory(s:include) && index(split(&path, ','), s:include) < 0
+        execute 'set path+=' . escape(s:include, ' ,\\')
+        if filereadable(s:include . '/tags')
+            execute 'set tags+=' . escape(s:include . '/tags', ' ,\\')
+        endif
+    endif
+endfor
+
+" Refresh an already-open Vim buffer when this configuration is sourced.
+" Syntax definitions may have been loaded before vimsyn_folding was set.
+if &l:filetype ==# 'vim'
+    setlocal syntax=vim
+endif
+
+" Project profiles are explicit user settings, never automatically sourced files.
+let g:portable_vim_projects = get(g:, 'portable_vim_projects', {})
+let s:build = get(s:, 'build', {})
+function! s:ProjectNames(A, L, P) abort
+    return join(sort(keys(g:portable_vim_projects)), "\n")
+endfunction
+function! s:ApplyProjectBackend(profile) abort
+    if !exists('s:project_ycm_defaults')
+        let s:project_ycm_defaults = {'clangd': get(g:, 'ycm_clangd_binary_path', ''),
+                    \ 'args': copy(get(g:, 'ycm_clangd_args', []))}
+    endif
+    let g:ycm_clangd_binary_path = get(a:profile, 'clangd', s:project_ycm_defaults.clangd)
+    let g:ycm_clangd_args = copy(get(a:profile, 'clangd_args', s:project_ycm_defaults.args))
+    if has_key(a:profile, 'compilation_database')
+        call filter(g:ycm_clangd_args, 'v:val !~# "^--compile-commands-dir="')
+        call add(g:ycm_clangd_args, '--compile-commands-dir=' . a:profile.compilation_database)
+    endif
+    echom 'Use :YcmRestartServer to apply clangd settings (YCM server is shared)'
+endfunction
+function! s:Project(name) abort
+    if !has_key(g:portable_vim_projects, a:name)
+        echoerr 'Unknown project profile: ' . a:name
+        return
+    endif
+    let l:p = deepcopy(g:portable_vim_projects[a:name])
+    if empty(get(l:p, 'root', '')) || empty(get(l:p, 'build', ''))
+        echoerr 'Project requires root and build'
+        return
+    endif
+    let l:p.root = fnamemodify(expand(l:p.root), ':p')
+    if !isdirectory(l:p.root)
+        echoerr 'Project root does not exist: ' . l:p.root
+        return
+    endif
+    if has_key(l:p, 'clangd') && !executable(l:p.clangd)
+        echoerr 'clangd is unavailable: ' . l:p.clangd
+        return
+    endif
+    if has_key(l:p, 'compilation_database')
+        let l:db = expand(l:p.compilation_database)
+        let l:p.compilation_database = fnamemodify(l:db =~# '^\%(/\|\a:[/\\]\)' ? l:db : l:p.root . '/' . l:db, ':p')
+        if !isdirectory(l:p.compilation_database)
+            echoerr 'Compilation database directory does not exist: ' . l:p.compilation_database
+            return
+        endif
+    endif
+    execute 'lcd ' . fnameescape(l:p.root)
+    compiler gcc
+    let &l:makeprg = l:p.build
+    let l:p.efm = get(l:p, 'errorformat', &errorformat)
+    let &l:errorformat = l:p.efm
+    let l:p.name = a:name
+    let t:portable_project = l:p
+    call s:ApplyProjectBackend(l:p)
+    echom 'Project: ' . a:name . ' (' . l:p.root . ')'
+endfunction
+command! -nargs=1 -complete=custom,<SID>ProjectNames Project call <SID>Project(<q-args>)
+
+" Open reports and quickfix below the main editing area.  Commands such as
+" :copen split the current window, which makes results unusably narrow when
+" invoked from NERDTree, Tagbar, a terminal, or another auxiliary pane.
+function! s:IsCodeAreaWindow(winid) abort
+    let l:buf = winbufnr(a:winid)
+    if l:buf < 0 || getbufvar(l:buf, '&buftype') !=# ''
+                \ || getwinvar(win_id2win(a:winid), '&previewwindow')
+                \ || getbufvar(l:buf, 'portable_practice_id', 0)
+        return 0
+    endif
+    let l:ft = getbufvar(l:buf, '&filetype')
+    let l:name = bufname(l:buf)
+    if index(['nerdtree', 'tagbar', 'taglist', 'netrw', 'bufexplorer',
+                \ 'fugitive', 'fugitiveblame', 'git', 'gitrebase'], l:ft) >= 0
+                \ || l:name =~# '^\%(__Tagbar__\.\|NERD_tree_\)'
+        return 0
+    endif
+    return 1
+endfunction
+
+function! s:FocusCodeArea() abort
+    if s:IsCodeAreaWindow(win_getid())
+        return 1
+    endif
+    let l:best = 0
+    let l:best_area = -1
+    for l:win in getwininfo()
+        if l:win.tabnr != tabpagenr() || !s:IsCodeAreaWindow(l:win.winid)
+            continue
+        endif
+        let l:area = l:win.width * l:win.height
+        if l:area > l:best_area
+            let l:best = l:win.winid
+            let l:best_area = l:area
+        endif
+    endfor
+    return l:best ? win_gotoid(l:best) : 0
+endfunction
+
+function! s:OpenQuickfixInCodeArea() abort
+    call s:FocusCodeArea()
+    " Vim may otherwise fill the space below a right-hand NERDTree even when
+    " the code window is current.  A full-width bottom list remains readable.
+    botright copen
+endfunction
+
+function! s:ProjectBuild(args) abort
+    if exists('t:portable_project') && !empty(t:portable_project)
+        execute 'lcd ' . fnameescape(t:portable_project.root)
+        let &l:makeprg = t:portable_project.build
+        let &l:errorformat = t:portable_project.efm
+    endif
+    execute 'make ' . a:args
+endfunction
+command! -nargs=* ProjectBuild call <SID>ProjectBuild(<q-args>)
+nnoremap <leader>mk :ProjectBuild<CR>
+nnoremap <leader>mc :ProjectBuild clean<CR>
+
+function! s:BuildOutput(channel, message) abort
+    call add(s:build.lines, a:message)
+    if getqflist({'id': s:build.qfid, 'nr': 0}).nr
+        call setqflist([], 'a', {'id': s:build.qfid, 'lines': [a:message], 'efm': s:build.efm})
+    endif
+endfunction
+function! s:BuildClosed(channel) abort
+    let s:build.closed = 1
+    call s:BuildFinished()
+endfunction
+function! s:BuildExited(job, status) abort
+    let s:build.status = a:status
+    call s:BuildFinished()
+endfunction
+function! s:BuildFinished() abort
+    if !get(s:build, 'closed', 0) || !has_key(s:build, 'status')
+        return
+    endif
+    let g:portable_vim_build_result = {'status': s:build.status, 'root': s:build.root,
+                \ 'lines': copy(s:build.lines), 'qfid': s:build.qfid,
+                \ 'stopped': get(s:build, 'stopped', 0), 'command': s:build.command,
+                \ 'efm': s:build.efm, 'title': s:build.title, 'time': s:build.time}
+    " Reparse together to preserve multiline diagnostics and directory context.
+    if getqflist({'id': s:build.qfid, 'nr': 0}).nr
+        call setqflist([], 'r', {'id': s:build.qfid,
+                    \ 'lines': ['PORTABLE_BUILD_DIR:' . s:build.root] + s:build.lines,
+                    \ 'efm': s:build.efm, 'title': s:build.title . ' [exit ' . s:build.status . ']',
+                    \ 'context': g:portable_vim_build_result})
+    endif
+    let s:build.running = 0
+    echom 'Build finished: exit ' . s:build.status . ' (use :BuildResults)'
+    if has_key(s:build, 'on_complete')
+        call call(s:build.on_complete, [deepcopy(g:portable_vim_build_result)])
+    endif
+endfunction
+function! s:StartBuild(cmd, root, efm, title, ...) abort
+    if get(s:build, 'running', 0)
+        echoerr 'A build is already running; use :BuildStop first'
+        return
+    endif
+    if !exists('*job_start')
+        echoerr 'Asynchronous builds require Vim +job and +channel'
+        return
+    endif
+    let l:title = a:title
+    let l:root = a:root
+    let l:cmd = a:cmd
+    call setqflist([], ' ', {'title': l:title, 'items': []})
+    let s:build = {'running': 1, 'closed': 0, 'root': l:root, 'title': l:title,
+                \ 'efm': '%DPORTABLE_BUILD_DIR:%f,' . a:efm,
+                \ 'command': l:cmd, 'time': strftime('%Y-%m-%dT%H:%M:%S%z'),
+                \ 'lines': [], 'qfid': getqflist({'id': 0}).id}
+    let l:options = a:0 ? a:1 : {}
+    if has_key(l:options, 'on_complete')
+        let s:build.on_complete = l:options.on_complete
+    endif
+    call setqflist([], 'a', {'id': s:build.qfid,
+                \ 'lines': ['PORTABLE_BUILD_DIR:' . l:root], 'efm': s:build.efm})
+    let l:argv = get(l:options, 'argv', [&shell] + split(&shellcmdflag) + [l:cmd])
+    let s:build.job = job_start(l:argv, {'cwd': l:root, 'in_io': 'null',
+                \ 'out_mode': 'nl', 'err_io': 'out', 'out_cb': function('<SID>BuildOutput'),
+                \ 'close_cb': function('<SID>BuildClosed'), 'exit_cb': function('<SID>BuildExited')})
+    if job_status(s:build.job) ==# 'fail'
+        let s:build.running = 0
+        echoerr 'Could not start build'
+    endif
+endfunction
+function! s:BuildAsync(args, database) abort
+    let l:p = get(t:, 'portable_project', {})
+    if a:database && (empty(l:p) || empty(get(l:p, 'database_command', '')))
+        echohl WarningMsg
+        if empty(l:p)
+            echom 'BuildDatabase: no project selected in this tab; source a project profile, then use :Project <name>'
+        else
+            echom 'BuildDatabase: project ' . get(l:p, 'name', '(unnamed)') . ' has no database_command; add it to the profile and select :Project <name> again'
+        endif
+        echohl None
+        return
+    endif
+    " Use effective global-local options: an empty local value inherits the global one.
+    let l:cmd = a:database ? get(l:p, 'database_command', '') : get(l:p, 'build', &makeprg)
+    if empty(l:cmd)
+        echoerr 'Set makeprg or select a project with :Project'
+        return
+    endif
+    if !empty(a:args)
+        let l:cmd .= ' ' . a:args
+    endif
+    call s:StartBuild(l:cmd, get(l:p, 'root', getcwd()), get(l:p, 'efm', &errorformat),
+                \ (a:database ? 'Database: ' : 'Build: ') . l:cmd)
+endfunction
+function! s:BuildStop() abort
+    if get(s:build, 'running', 0)
+        let s:build.stopped = 1
+        call job_stop(s:build.job)
+    endif
+endfunction
+function! s:BuildResults() abort
+    let l:id = get(s:build, 'qfid', 0)
+    let l:nr = l:id ? getqflist({'id': l:id, 'nr': 0}).nr : 0
+    if !l:nr && has_key(s:build, 'lines')
+        call setqflist([], ' ', {'title': s:build.title, 'efm': s:build.efm,
+                    \ 'lines': ['PORTABLE_BUILD_DIR:' . s:build.root] + s:build.lines,
+                    \ 'context': get(g:, 'portable_vim_build_result', {})})
+        let s:build.qfid = getqflist({'id': 0}).id
+        let l:nr = getqflist({'nr': 0}).nr
+    elseif !l:nr
+        echoerr 'Build list is unavailable'
+        return
+    endif
+    let l:current = getqflist({'nr': 0}).nr
+    if l:current > l:nr
+        execute 'colder ' . (l:current - l:nr)
+    elseif l:current < l:nr
+        execute 'cnewer ' . (l:nr - l:current)
+    endif
+    call s:OpenQuickfixInCodeArea()
+endfunction
+command! -nargs=* BuildAsync call <SID>BuildAsync(<q-args>, 0)
+command! BuildDatabase call <SID>BuildAsync('', 1)
+command! BuildStop call <SID>BuildStop()
+command! BuildResults call <SID>BuildResults()
+nnoremap <leader>mb :BuildAsync<CR>
+nnoremap <leader>ms :BuildStop<CR>
+nnoremap <leader>mq :BuildResults<CR>
+
+" Single-file exercises: saved source only, direct compiler argv, temporary output.
+let s:practice = get(s:, 'practice', {})
+let s:practice_windows = get(s:, 'practice_windows', {})
+let s:practice_active_window = win_getid()
+" One pane per source window; each run keeps a distinct terminal buffer.
+" History is session-only and includes programs that actually started.
+let s:practice_history = get(s:, 'practice_history', [])
+let s:practice_next_id = get(s:, 'practice_next_id', 1)
+let g:portable_practice_history_limit = get(g:, 'portable_practice_history_limit', 10)
+" Evaluate in the statusline's window; historical terminals keep their own state.
+function! PortablePracticeStatus() abort
+    let l:id = get(b:, 'portable_practice_id', 0)
+    if l:id
+        for l:r in s:practice_history
+            if l:r.id == l:id
+                return l:r.phase ==# 'running' ? ' [Running #' . l:id . ']'
+                            \ : printf(' [%s #%d · exit %d]', l:r.status == 0 ? 'Done' : 'Failed', l:id, l:r.status)
+            endif
+        endfor
+        return ''
+    endif
+    let l:r = get(s:practice, 'state', {})
+    if &buftype ==# '' && bufnr('%') == get(l:r, 'source_buffer', -1)
+        return get(l:r, 'phase', '') ==# 'compiling' ? ' [Practice: compiling]'
+                    \ : get(l:r, 'phase', '') ==# 'running' ? ' [Practice: running]' : ''
+    endif
+    return ''
+endfunction
+" A dedicated terminal layout avoids code metadata and Vim's duplicate finished flag.
+function! PortablePracticeStatusline() abort
+    " %! expressions run in the current window, which may be the source pane.
+    let l:win = get(getwininfo(get(g:, 'statusline_winid', win_getid())), 0, {})
+    let l:r = getbufvar(get(l:win, 'bufnr', bufnr('%')), 'portable_practice_record', {})
+    if empty(l:r)
+        return '%#StatuslineFlag# Practice output'
+    endif
+    " This function returns a statusline format: escape percent signs in filenames.
+    let l:name = substitute(fnamemodify(l:r.source, ':t'), '%', '%%', 'g')
+    let l:state = l:r.phase ==# 'running' ? 'Running'
+                \ : printf('%s · exit %d', l:r.status == 0 ? 'Done' : 'Failed', l:r.status)
+    return printf('%%#StatuslineFlag# Practice #%d  %%#StatuslineFileName#%s  %%#StatuslineFileType#[%s]%%#StatuslineFill#%%<%%=%%#StatuslineHostName# %s ', l:r.id, l:name,
+                \ l:r.checked ? 'Sanitizer' : 'Normal', l:state)
+endfunction
+function! s:PracticeStatusAttach() abort
+    let l:dedicated = '%!PortablePracticeStatusline()'
+    if get(b:, 'portable_practice_id', 0)
+        if &l:statusline !=# l:dedicated
+            let w:portable_practice_previous_statusline = &l:statusline
+            let &l:statusline = l:dedicated
+        endif
+        return
+    endif
+    " A result pane can be reused for source code; restore its normal layout.
+    if &l:statusline ==# l:dedicated
+        let &l:statusline = get(w:, 'portable_practice_previous_statusline', &g:statusline)
+    endif
+    " Preserve ManShow's layout and highlights, even when it rebuilds the line.
+    let l:line = &statusline
+    if stridx(l:line, 'PortablePracticeStatus()') < 0
+        let &l:statusline = l:line . '%#StatuslinePracticeStatus#%{PortablePracticeStatus()}%0*'
+    endif
+endfunction
+augroup PortableVimPracticeStatus
+    autocmd!
+    autocmd OptionSet statusline call <SID>PracticeStatusAttach()
+    autocmd VimEnter,BufWinEnter * call <SID>PracticeStatusAttach()
+augroup END
+function! s:PracticeHistoryChanged() abort
+    let l:limit = get(g:, 'portable_practice_history_limit', 10)
+    let l:limit = type(l:limit) == v:t_number && l:limit > 0 ? l:limit : 10
+    while len(s:practice_history) > l:limit
+        let l:index = -1
+        for l:i in range(len(s:practice_history))
+            if s:practice_history[l:i].phase ==# 'run'
+                let l:index = l:i
+                break
+            endif
+        endfor
+        if l:index < 0
+            break
+        endif
+        let l:old = remove(s:practice_history, l:index)
+        " Do not close visible history or discard a user's edits to old output.
+        if bufexists(l:old.terminal) && empty(win_findbuf(l:old.terminal))
+                    \ && !getbufvar(l:old.terminal, '&modified')
+            execute 'silent! bwipeout! ' . l:old.terminal
+        endif
+    endwhile
+    let g:portable_vim_practice_history = deepcopy(s:practice_history)
+    redrawstatus!
+endfunction
+function! s:PracticeResultPane(context) abort
+    for l:id in keys(s:practice_windows)
+        let l:win = win_id2win(str2nr(l:id))
+        if l:win && s:practice_windows[l:id].origin == a:context.origin
+                    \ && getbufvar(winbufnr(l:win), 'portable_practice_id', 0)
+            call win_gotoid(str2nr(l:id))
+            return 1
+        endif
+    endfor
+    call s:PracticeReturnToSource(a:context, 0)
+    if &buftype !=# ''
+        echom 'No code window available for practice results in this tab'
+        return 0
+    endif
+    belowright new
+    return 1
+endfunction
+function! s:PracticeReturnToSource(context, timer) abort
+    " Stay in the current tab; a source window may have closed during the run.
+    let l:origin = win_id2win(a:context.origin)
+    if l:origin && winbufnr(l:origin) == a:context.source_buffer
+                \ && getbufvar(a:context.source_buffer, '&buftype') ==# ''
+        call win_gotoid(a:context.origin)
+        return
+    endif
+    let l:fallback = 0
+    for l:win in getwininfo()
+        if l:win.tabnr != tabpagenr() || getbufvar(l:win.bufnr, '&buftype') !=# ''
+                    \ || getwinvar(l:win.winnr, '&previewwindow')
+            continue
+        endif
+        if l:win.bufnr == a:context.source_buffer
+            call win_gotoid(l:win.winid)
+            return
+        endif
+        let l:fallback = l:fallback ? l:fallback : l:win.winid
+    endfor
+    if l:fallback
+        call win_gotoid(l:fallback)
+    endif
+endfunction
+function! s:PracticeWindowClosed(id) abort
+    if !has_key(s:practice_windows, a:id)
+        return
+    endif
+    let l:context = remove(s:practice_windows, a:id)
+    " WinClosed precedes Vim's selection of the next window; restore afterwards.
+    " Closing a background result window must not move the user's cursor.
+    if s:practice_active_window == str2nr(a:id) && getbufvar(bufnr('%'), 'portable_practice_id', 0)
+        call timer_start(0, function('<SID>PracticeReturnToSource', [l:context]))
+    endif
+endfunction
+augroup PortableVimPracticeWindows
+    autocmd!
+    " win_execute() changes context without WinEnter; keep the actual focus.
+    autocmd WinEnter * let s:practice_active_window = win_getid()
+    if exists('##WinClosed')
+        autocmd WinClosed * call <SID>PracticeWindowClosed(expand('<amatch>'))
+    endif
+augroup END
+function! s:PracticeExited(context, job, status) abort
+    let a:context.status = a:status
+    let a:context.phase = 'run'
+    let g:portable_vim_practice_result = copy(a:context)
+    call s:PracticeHistoryChanged()
+    redrawstatus!
+    echom 'Practice finished: exit ' . a:status
+endfunction
+function! s:PracticeCompiled(context, result) abort
+    let s:practice.state = extend(copy(a:context), {'phase': 'compile'})
+    redrawstatus!
+    let g:portable_vim_practice_result = extend(copy(a:context), {'status': a:result.status, 'phase': 'compile'})
+    " Close only this practice list, and never a window inherited from another tool.
+    let l:qf = getqflist({'id': 0, 'winid': 0})
+    if a:result.status == 0 && !get(a:result, 'stopped', 0)
+                \ && l:qf.id == a:result.qfid && l:qf.winid
+                \ && (a:context.close_quickfix || l:qf.winid != a:context.quickfix_window)
+        let l:items = getqflist({'id': a:result.qfid, 'items': 0}).items
+        if empty(filter(l:items, 'v:val.valid'))
+            cclose
+        endif
+    endif
+    if a:result.status || get(a:result, 'stopped', 0) || !a:context.run
+        if a:result.status && !get(a:result, 'stopped', 0)
+            call s:BuildResults()
+        endif
+        return
+    endif
+    if !executable(a:context.output)
+        let g:portable_vim_practice_result.status = -1
+        echom 'Practice executable missing or not executable: ' . a:context.output
+        return
+    endif
+    " Check again: the input file may have disappeared while compiling.
+    if !empty(a:context.input) && !filereadable(a:context.input)
+        echom 'Practice input disappeared: ' . a:context.input
+        return
+    endif
+    if !s:PracticeResultPane(a:context)
+        return
+    endif
+    " Hide, rather than overwrite, the previous completed terminal buffer.
+    hide enew
+    setlocal termwinsize=10*0
+    let l:record = extend(copy(a:context), {'id': s:practice_next_id,
+                \ 'time': strftime('%Y-%m-%d %H:%M:%S'), 'terminal': 0,
+                \ 'phase': 'running', 'status': 'running'})
+    let s:practice_next_id += 1
+    call add(s:practice_history, l:record)
+    let s:practice.state = l:record
+    let g:portable_vim_practice_result = copy(l:record)
+    " Keep results visible, but do not reopen a window the user has closed.
+    " Use the theme's Normal colors instead of a separate Terminal background.
+    " Keep the ANSI palette intact for colored program/sanitizer output.
+    let l:opts = {'cwd': a:context.root, 'curwin': 1, 'term_highlight': 'Normal',
+                \ 'term_name': 'Practice #' . l:record.id . ': ' . fnamemodify(a:context.source, ':t'),
+                \ 'exit_cb': function('<SID>PracticeExited', [l:record])}
+    if !empty(a:context.input)
+        let l:opts.in_io = 'file'
+        let l:opts.in_name = a:context.input
+    endif
+    let l:buf = term_start([a:context.output], l:opts)
+    if l:buf <= 0
+        let s:practice.state = {}
+        call remove(s:practice_history, -1)
+        call s:PracticeHistoryChanged()
+        close
+        echom 'Could not start practice program'
+        return
+    endif
+    let l:record.terminal = l:buf
+    call setbufvar(l:buf, 'portable_practice_record', l:record)
+    call setbufvar(l:buf, 'portable_practice_id', l:record.id)
+    call s:PracticeStatusAttach()
+    call setbufvar(l:buf, '&bufhidden', 'hide')
+    let s:practice_windows[string(win_getid())] = a:context
+    let s:practice.run_job = term_getjob(l:buf)
+    let g:portable_vim_practice_result = copy(l:record)
+    call s:PracticeHistoryChanged()
+endfunction
+function! s:PracticeHistoryIds(A, L, P) abort
+    return join(map(reverse(copy(s:practice_history)), 'string(v:val.id)'), "\n")
+endfunction
+function! s:PracticeHistory(id) abort
+    if empty(s:practice_history)
+        echom 'No practice history; use :PracticeRun first'
+        return
+    endif
+    let l:records = reverse(copy(s:practice_history))
+    if empty(a:id)
+        let l:menu = ['Select practice output (0 cancels):']
+        for l:i in range(len(l:records))
+            let l:r = l:records[l:i]
+            call add(l:menu, printf('%d. #%d %s %s [%s] exit=%s', l:i + 1,
+                        \ l:r.id, l:r.time, fnamemodify(l:r.source, ':t'),
+                        \ l:r.checked ? 'sanitizer' : 'normal', string(l:r.status)))
+        endfor
+        let l:choice = inputlist(l:menu)
+        if l:choice <= 0 || l:choice > len(l:records)
+            return
+        endif
+        let l:record = l:records[l:choice - 1]
+    else
+        let l:matches = filter(l:records, 'string(v:val.id) ==# a:id')
+        if empty(l:matches)
+            echoerr 'Unknown practice history ID: ' . a:id
+            return
+        endif
+        let l:record = l:matches[0]
+    endif
+    if !bufexists(l:record.terminal)
+        echoerr 'Practice output buffer was deleted'
+        return
+    endif
+    if s:PracticeResultPane(l:record)
+        execute 'hide buffer ' . l:record.terminal
+        call s:PracticeStatusAttach()
+        let s:practice_windows[string(win_getid())] = l:record
+    endif
+endfunction
+function! s:Practice(run, checked, input, ...) abort
+    if get(s:build, 'running', 0) || (has_key(s:practice, 'run_job') && job_status(s:practice.run_job) ==# 'run')
+        echoerr 'A build or practice program is running; stop it first'
+        return
+    endif
+    if &buftype !=# '' || index(['c', 'cpp'], &filetype) < 0 || !filereadable(expand('%:p'))
+        echoerr 'Open a saved C/C++ source file for practice'
+        return
+    endif
+    if &modified
+        echoerr 'Save the source with :write before practice compilation'
+        return
+    endif
+    if a:run && !exists('*term_start')
+        echoerr 'PracticeRun requires Vim terminal support'
+        return
+    endif
+    let l:input = empty(a:input) ? '' : fnamemodify(expand(a:input), ':p')
+    if !empty(l:input) && !filereadable(l:input)
+        echoerr 'Practice input does not exist: ' . l:input
+        return
+    endif
+    " An explicit buffer-local dictionary enables Makefile builds; never auto-detect.
+    let l:make = get(b:, 'portable_practice_make', {})
+    if type(l:make) != v:t_dict
+        echoerr 'b:portable_practice_make must be a dictionary'
+        return
+    endif
+    let l:root = expand('%:p:h')
+    if !empty(l:make)
+        let l:output = get(l:make, a:checked ? 'checked_output' : 'output', get(l:make, 'output', ''))
+        let l:file = get(l:make, 'file', 'Makefile')
+        let l:program = get(l:make, 'program', 'make')
+        let l:target = get(l:make, a:checked ? 'checked_target' : 'target', '')
+        let l:args = get(l:make, 'args', [])
+        if type(l:output) != v:t_string || empty(l:output)
+                    \ || type(l:file) != v:t_string || empty(l:file)
+                    \ || type(l:program) != v:t_string || type(l:target) != v:t_string
+                    \ || type(l:args) != v:t_list || !empty(filter(copy(l:args), 'type(v:val) != v:t_string'))
+            echoerr 'Practice Makefile mode requires output, string file/program/target, and a list of string args'
+            return
+        endif
+        if a:checked && empty(l:target)
+            echoerr 'PracticeRun! Makefile mode requires checked_target; enable sanitizers in that Makefile target'
+            return
+        endif
+        if !executable(l:program) || !filereadable(l:root . '/' . l:file)
+            echoerr 'Practice Makefile or make executable unavailable'
+            return
+        endif
+        " Resolve configured output relative to the source directory, without :cd.
+        let l:output = simplify(l:output =~# '^\%(/\|[A-Za-z]:[/\\]\|\\\\\)' ? l:output : l:root . '/' . l:output)
+        let l:argv = [exepath(l:program), '-f', l:file] + copy(l:args)
+        if !empty(l:target)
+            call add(l:argv, l:target)
+        endif
+    else
+        let l:cpp = &filetype ==# 'cpp'
+        let l:compiler = get(b:, 'portable_practice_compiler', get(g:, 'portable_practice_' . (l:cpp ? 'cxx' : 'cc'), l:cpp ? 'clang++' : 'clang'))
+        if !executable(l:compiler)
+            echoerr 'Practice compiler unavailable: ' . l:compiler
+            return
+        endif
+        let l:flags = get(b:, 'portable_practice_flags', [])
+        if type(l:flags) != v:t_list || !empty(filter(copy(l:flags), 'type(v:val) != v:t_string'))
+            echoerr 'b:portable_practice_flags must be a list of compiler arguments'
+            return
+        endif
+        " Explicit outputs are relative to the source directory, not Vim's cwd.
+        let l:output = a:0 ? a:1 : get(b:, a:checked ? 'portable_practice_checked_output' : 'portable_practice_output',
+                    \ get(b:, 'portable_practice_output', ''))
+        if type(l:output) != v:t_string
+            echoerr 'Practice output must be a string path'
+            return
+        endif
+        if empty(l:output)
+            let l:output = tempname() . '/practice' . (s:windows ? '.exe' : '')
+        else
+            let l:output = simplify(l:output =~# '^\%(/\|[A-Za-z]:[/\\]\|\\\\\)' ? l:output : l:root . '/' . l:output)
+        endif
+        if isdirectory(l:output) || resolve(l:output) ==# resolve(expand('%:p'))
+            echoerr 'Practice output must be a file distinct from the source'
+            return
+        endif
+        try
+            call mkdir(fnamemodify(l:output, ':h'), 'p')
+        catch
+            echoerr 'Could not create practice output directory: ' . v:exception
+            return
+        endtry
+        let l:argv = [exepath(l:compiler), '-std=' . get(b:, 'portable_practice_standard', l:cpp ? 'c++17' : 'c17'),
+                    \ '-Wall', '-Wextra', '-Wshadow', '-g', '-O0', '-fdiagnostics-color=never']
+        if a:checked
+            call extend(l:argv, ['-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-fno-sanitize-recover=all'])
+        endif
+        call extend(l:argv, copy(l:flags) + [expand('%:p'), '-o', l:output])
+    endif
+    let l:ctx = {'source': expand('%:p'), 'root': l:root, 'output': l:output,
+                \ 'input': l:input, 'run': a:run, 'checked': a:checked, 'make_mode': !empty(l:make),
+                \ 'origin': win_getid(), 'source_buffer': bufnr('%')}
+    let l:qf = getqflist({'winid': 0, 'title': 0})
+    let l:ctx.quickfix_window = l:qf.winid
+    let l:ctx.close_quickfix = l:qf.title =~# '^Practice: '
+    " Preserve this buffer's compiler settings while obtaining GCC/Clang parsing.
+    let l:old_efm = &l:errorformat
+    let l:old_make = &l:makeprg
+    let l:had_compiler = exists('b:current_compiler')
+    let l:old_compiler = get(b:, 'current_compiler', '')
+    try
+        compiler gcc
+        let l:efm = &errorformat
+    finally
+        let &l:errorformat = l:old_efm
+        let &l:makeprg = l:old_make
+        if l:had_compiler
+            let b:current_compiler = l:old_compiler
+        else
+            unlet! b:current_compiler
+        endif
+    endtry
+    call s:StartBuild(join(map(copy(l:argv), 'shellescape(v:val)'), ' '), l:ctx.root, l:efm, 'Practice: ' . fnamemodify(l:ctx.source, ':t'),
+                \ {'argv': l:argv, 'on_complete': function('<SID>PracticeCompiled', [l:ctx])})
+    let s:practice.state = extend(copy(l:ctx), {'phase': 'compiling'})
+    let s:practice.compile_job = s:build.job
+    redrawstatus!
+endfunction
+function! s:PracticeStop() abort
+    if has_key(s:practice, 'compile_job') && job_status(s:practice.compile_job) ==# 'run'
+        " The practice compiler shares the build queue and its cancellation flag.
+        call s:BuildStop()
+    endif
+    if has_key(s:practice, 'run_job') && job_status(s:practice.run_job) ==# 'run'
+        call job_stop(s:practice.run_job)
+    endif
+endfunction
+" -o takes a directory relative to Vim's effective cwd for this invocation only.
+" <f-args> handles Vim-style escaped spaces; no shell parses these paths.
+function! s:PracticeCommand(run, checked, args) abort
+    let l:args = copy(a:args)
+    if empty(l:args) || l:args[0] !=# '-o'
+        if !a:run && !empty(l:args)
+            echoerr 'Usage: PracticeBuild[!] [-o directory]'
+            return
+        endif
+        if !empty(l:args) && l:args[0] ==# '--'
+            call remove(l:args, 0)
+        endif
+        call s:Practice(a:run, a:checked, join(l:args, ' '))
+        return
+    endif
+    if len(l:args) < 2 || empty(l:args[1]) || len(l:args) > (a:run ? 3 : 2)
+        echoerr 'Usage: PracticeRun[!] -o directory [input-file] / PracticeBuild[!] -o directory'
+        return
+    endif
+    if !empty(get(b:, 'portable_practice_make', {}))
+        echoerr 'Practice -o is for single-file mode; configure Makefile output in b:portable_practice_make'
+        return
+    endif
+    let l:directory = fnamemodify(l:args[1], ':p')
+    if filereadable(l:directory)
+        echoerr 'Practice -o requires an output directory'
+        return
+    endif
+    let l:output = simplify(l:directory . '/' . expand('%:t:r') . (s:windows ? '.exe' : ''))
+    call s:Practice(a:run, a:checked, get(l:args, 2, ''), l:output)
+endfunction
+command! -bang -nargs=* -complete=file PracticeBuild call <SID>PracticeCommand(0, <bang>0, [<f-args>])
+command! -bang -nargs=* -complete=file PracticeRun call <SID>PracticeCommand(1, <bang>0, [<f-args>])
+" Latest means the last program actually started, even if a later build failed.
+command! PracticeLast call <SID>PracticeHistory(empty(s:practice_history) ? '' : string(s:practice_history[-1].id))
+command! PracticeStop call <SID>PracticeStop()
+command! -nargs=? -complete=custom,<SID>PracticeHistoryIds PracticeHistory call <SID>PracticeHistory(<q-args>)
+" Short commands share the same parser and callbacks as their full names.
+command! -bang -nargs=* -complete=file PR call <SID>PracticeCommand(1, <bang>0, [<f-args>])
+" Expand standalone aliases only on Tab; keep native argument completion.
+let s:command_tab_aliases = {
+            \ 'PR': 'PracticeRun', 'PR!': 'PracticeRun!',
+            \ 'BA': 'BuildAsync', 'BR': 'BuildResults', 'BS': 'BuildStop',
+            \ 'BD': 'BuildDatabase', 'BL': 'BuildLog',
+            \ 'BLS': 'BuildLogSave', 'BLS!': 'BuildLogSave!', 'BLL': 'BuildLogLoad'}
+if &wildcharm == 0
+    set wildcharm=<C-Z>
+endif
+function! s:CommandAliasTab() abort
+    let l:line = getcmdline()
+    let l:full = get(s:command_tab_aliases, l:line, '')
+    if getcmdtype() ==# ':' && getcmdpos() == strlen(l:line) + 1 && !empty(l:full)
+        return "\<C-U>" . l:full
+    endif
+    return getcmdtype() ==# ':' ? nr2char(&wildcharm) : "\<Tab>"
+endfunction
+cnoremap <expr> <Tab> <SID>CommandAliasTab()
+command! -bang -nargs=* -complete=file PB call <SID>PracticeCommand(0, <bang>0, [<f-args>])
+command! PL PracticeLast
+command! -nargs=? -complete=custom,<SID>PracticeHistoryIds PH call <SID>PracticeHistory(<q-args>)
+command! PS PracticeStop
+nnoremap <leader>ab :PracticeBuild<CR>
+nnoremap <leader>ar :PracticeRun<CR>
+nnoremap <leader>ac :PracticeRun!<CR>
+nnoremap <leader>ax :PracticeStop<CR>
+
+function! s:Session(path, save, force) abort
+    let l:path = empty(a:path) ? get(get(t:, 'portable_project', {}), 'session', '') : a:path
+    if empty(l:path)
+        echoerr 'Specify a session file or set session in the project profile'
+        return
+    endif
+    let l:path = fnamemodify(expand(l:path), ':p')
+    if a:save
+        if getftype(l:path) !=# '' && !a:force
+            echoerr 'Session exists; use :SaveSession! to overwrite'
+            return
+        endif
+        if !isdirectory(fnamemodify(l:path, ':h'))
+            echoerr 'Session parent directory does not exist'
+            return
+        endif
+        let l:old = &sessionoptions
+        let l:previous = v:this_session
+        let l:committed = 0
+        " Stage beside the destination so rename does not cross filesystems.
+        let l:tmp = fnamemodify(l:path, ':h') . '/.vim-session-' . getpid() . '-' . fnamemodify(tempname(), ':t') . '.vim'
+        try
+            let &sessionoptions = 'buffers,curdir,folds,tabpages,winsize'
+            execute 'mksession ' . fnameescape(l:tmp)
+            let l:profiles = []
+            for l:tab in range(1, tabpagenr('$'))
+                let l:p = gettabvar(l:tab, 'portable_project', {})
+                if !empty(l:p)
+                    call add(l:profiles, 'call settabvar(' . l:tab . ', "portable_project", ' . string(l:p) . ')')
+                endif
+            endfor
+            call writefile(l:profiles, l:tmp, 'a')
+            call setfperm(l:tmp, filereadable(l:path) ? getfperm(l:path) : 'rw-------')
+            if (!a:force && getftype(l:path) !=# '') || rename(l:tmp, l:path) != 0
+                throw 'Could not replace session file; existing session preserved'
+            endif
+            let l:committed = 1
+            let v:this_session = l:path
+            echom 'Session saved: ' . l:path
+        finally
+            let &sessionoptions = l:old
+            if !l:committed
+                let v:this_session = l:previous
+            endif
+            call delete(l:tmp)
+        endtry
+    else
+        if !empty(getbufinfo({'bufmodified': 1}))
+            echoerr 'Save or discard modified buffers before loading a session'
+            return
+        endif
+        if !filereadable(l:path)
+            echoerr 'Session file does not exist: ' . l:path
+            return
+        endif
+        execute 'source ' . fnameescape(l:path)
+        if exists('t:portable_project') && !empty(t:portable_project)
+            let &l:makeprg = t:portable_project.build
+            let &l:errorformat = t:portable_project.efm
+            call s:ApplyProjectBackend(t:portable_project)
+        endif
+        echom 'Session loaded: ' . l:path
+    endif
+endfunction
+" :SaveSession /path/work.vim saves views; :SaveSession! replaces it.
+" :LoadSession /path/work.vim restores views; omitted path uses project.session.
+" Source buffers are never saved here; save/discard edits before loading.
+command! -bang -nargs=? -complete=file SaveSession call <SID>Session(<q-args>, 1, <bang>0)
+command! -nargs=? -complete=file LoadSession call <SID>Session(<q-args>, 0, 0)
+
+" Load after filetype defaults so project indentation takes precedence.
+if get(g:, 'portable_vim_plugins', 1)
+    let s:editorconfig = s:packages . '/pack/portable/opt/editorconfig'
+    let s:editorconfig_builtin = !isdirectory(s:editorconfig)
+    if s:editorconfig_builtin
+        let s:editorconfig = $VIMRUNTIME . '/pack/dist/opt/editorconfig'
+    endif
+    if isdirectory(s:editorconfig)
+        if index(split(&runtimepath, ','), s:editorconfig) < 0
+            let &runtimepath = escape(s:editorconfig, ' ,\\') . ',' . &runtimepath
+        endif
+        execute 'source ' . fnameescape(s:editorconfig . '/plugin/editorconfig.vim')
+        " Older bundled EditorConfig assumes <afile> is set. Anonymous result
+        " buffers and an empty startup have no file to apply settings to.
+        if s:editorconfig_builtin && exists('#editorconfig#BufNew')
+            autocmd! editorconfig VimEnter,BufNew *
+        endif
+    endif
+endif
+function! s:EditorConfigApplied(config) abort
+    let b:portable_editorconfig_preserve_whitespace = get(a:config, 'trim_trailing_whitespace', '') ==# 'false'
+    return 0
+endfunction
+if !empty(globpath(&runtimepath, 'autoload/editorconfig.vim', 0, 1))
+            \ && !get(s:, 'editorconfig_hook', 0)
+    call editorconfig#AddNewHook(function('<SID>EditorConfigApplied'))
+    let s:editorconfig_hook = 1
+endif
+nnoremap <leader>gs :call <SID>PluginCommand('Git')<CR>
+nnoremap <leader>gd :call <SID>PluginCommand('Gdiffsplit')<CR>
+function! s:GitBlame() abort
+    " Fugitive positions its new window at line('w0') + scrolloff, which can
+    " exceed the file length for short files. Keep the source option intact.
+    let l:win = win_getid()
+    let l:scrolloff = &l:scrolloff
+    try
+        if line('w0') + &scrolloff > line('$')
+            setlocal scrolloff=0
+        endif
+        call s:PluginCommand('Git blame')
+    finally
+        if win_id2win(l:win)
+            call setwinvar(l:win, '&scrolloff', l:scrolloff)
+        endif
+    endtry
+endfunction
+command! GitBlame call <SID>GitBlame()
+nnoremap <leader>gb :GitBlame<CR>
+nnoremap <leader>gl :call <SID>PluginCommand('Git log --oneline')<CR>
+
+" Additional explicit project operations; preserve existing editing helpers.
+let s:search = get(s:, 'search', {})
+let s:inspection = get(s:, 'inspection', {})
+function! s:ShowReport(name, lines, filetype) abort
+    call s:FocusCodeArea()
+    botright new
+    setlocal buftype=nofile bufhidden=wipe noswapfile
+    let l:name = bufexists(a:name) ? a:name . ' #' . bufnr('%') : a:name
+    execute 'file ' . fnameescape(l:name)
+    call setline(1, empty(a:lines) ? [''] : a:lines)
+    let &l:filetype = a:filetype
+    setlocal nomodified nomodifiable readonly
+endfunction
+function! s:TaskNames(A, L, P) abort
+    return join(sort(keys(get(get(t:, 'portable_project', {}), 'tasks', {}))), "\n")
+endfunction
+function! s:ProjectTask(name) abort
+    let l:p = get(t:, 'portable_project', {})
+    let l:tasks = get(l:p, 'tasks', {})
+    if !has_key(l:tasks, a:name)
+        echoerr 'Unknown project task: ' . a:name
+        return
+    endif
+    let l:task = l:tasks[a:name]
+    let l:cmd = type(l:task) == v:t_dict ? get(l:task, 'command', '') : l:task
+    let l:efm = type(l:task) == v:t_dict ? get(l:task, 'errorformat', get(l:p, 'efm', &errorformat)) : get(l:p, 'efm', &errorformat)
+    if type(l:cmd) != v:t_string || empty(l:cmd)
+        echoerr 'Task requires a shell command'
+        return
+    endif
+    call s:StartBuild(l:cmd, get(l:p, 'root', getcwd()), l:efm, 'Task ' . a:name . ': ' . l:cmd)
+endfunction
+command! -nargs=1 -complete=custom,<SID>TaskNames ProjectTask call <SID>ProjectTask(<q-args>)
+
+function! s:SearchOutput(channel, line) abort
+    call add(s:search.lines, a:line)
+endfunction
+function! s:SearchClosed(channel) abort
+    let s:search.closed = 1
+    call s:SearchFinished()
+endfunction
+function! s:SearchExited(job, status) abort
+    let s:search.status = a:status
+    call s:SearchFinished()
+endfunction
+function! s:SearchFinished() abort
+    if !get(s:search, 'closed', 0) || !has_key(s:search, 'status')
+        return
+    endif
+    let s:search.running = 0
+    let g:portable_vim_search_result = {'status': s:search.status, 'root': s:search.root,
+                \ 'query': s:search.query, 'lines': copy(s:search.lines), 'qfid': s:search.qfid}
+    if getqflist({'id': s:search.qfid, 'nr': 0}).nr
+        call setqflist([], 'r', {'id': s:search.qfid,
+                    \ 'lines': ['PORTABLE_BUILD_DIR:' . s:search.root] + s:search.lines,
+                    \ 'efm': '%DPORTABLE_BUILD_DIR:%f,%f:%l:%c:%m',
+                    \ 'title': 'Search: ' . s:search.query . ' [exit ' . s:search.status . ']',
+                    \ 'context': g:portable_vim_search_result})
+    endif
+    echom s:search.status == 1 ? 'Search finished: no matches' : 'Search finished: exit ' . s:search.status . ' (use :SearchResults)'
+endfunction
+function! s:ProjectSearch(query, c_only, literal) abort
+    if !executable('rg') || !exists('*job_start')
+        echoerr 'Project search requires ripgrep and Vim +job'
+        return
+    endif
+    if get(s:search, 'running', 0)
+        echoerr 'A search is running; use :SearchStop first'
+        return
+    endif
+    if empty(a:query)
+        echoerr 'Specify a search pattern'
+        return
+    endif
+    let l:p = get(t:, 'portable_project', {})
+    let l:argv = [exepath('rg'), '--vimgrep', '--no-heading', '--color=never', '--smart-case']
+    if a:c_only
+        call extend(l:argv, ['-g', '*.c', '-g', '*.h'])
+    endif
+    if a:literal
+        call extend(l:argv, ['--fixed-strings', '--word-regexp'])
+    endif
+    for l:glob in get(l:p, 'search_globs', [])
+        call extend(l:argv, ['-g', l:glob])
+    endfor
+    call extend(l:argv, ['--', a:query, '.'])
+    call setqflist([], ' ', {'title': 'Search: ' . a:query, 'items': []})
+    let s:search = {'running': 1, 'closed': 0, 'query': a:query, 'root': get(l:p, 'root', getcwd()),
+                \ 'qfid': getqflist({'id': 0}).id, 'lines': []}
+    let s:search.job = job_start(l:argv, {'cwd': s:search.root, 'in_io': 'null',
+                \ 'out_mode': 'nl', 'err_io': 'out', 'out_cb': function('<SID>SearchOutput'),
+                \ 'close_cb': function('<SID>SearchClosed'), 'exit_cb': function('<SID>SearchExited')})
+    if job_status(s:search.job) ==# 'fail'
+        let s:search.running = 0
+        echoerr 'Could not start search'
+    endif
+endfunction
+function! s:SearchStop() abort
+    if get(s:search, 'running', 0)
+        call job_stop(s:search.job)
+    endif
+endfunction
+function! s:SearchResults() abort
+    let l:id = get(s:search, 'qfid', 0)
+    let l:nr = l:id ? getqflist({'id': l:id, 'nr': 0}).nr : 0
+    if !l:nr && has_key(s:search, 'lines')
+        call setqflist([], ' ', {'title': 'Search: ' . s:search.query,
+                    \ 'lines': ['PORTABLE_BUILD_DIR:' . s:search.root] + s:search.lines,
+                    \ 'efm': '%DPORTABLE_BUILD_DIR:%f,%f:%l:%c:%m',
+                    \ 'context': get(g:, 'portable_vim_search_result', {})})
+        let s:search.qfid = getqflist({'id': 0}).id
+        let l:nr = getqflist({'nr': 0}).nr
+    elseif !l:nr
+        echoerr 'Search list is unavailable'
+        return
+    endif
+    let l:current = getqflist({'nr': 0}).nr
+    if l:current > l:nr
+        execute 'colder ' . (l:current - l:nr)
+    elseif l:current < l:nr
+        execute 'cnewer ' . (l:nr - l:current)
+    endif
+    call s:OpenQuickfixInCodeArea()
+endfunction
+command! -bang -nargs=+ ProjectSearch call <SID>ProjectSearch(<q-args>, <bang>0, 0)
+command! -bang ProjectWord call <SID>ProjectSearch(expand('<cword>'), <bang>0, 1)
+command! -bang ProjectTodo call <SID>ProjectSearch('\b(TODO|FIXME|XXX)\b', <bang>0, 0)
+command! SearchStop call <SID>SearchStop()
+command! SearchResults call <SID>SearchResults()
+nnoremap <leader>sw :ProjectWord<CR>
+nnoremap <leader>st :ProjectTodo<CR>
+
+function! s:BuildLog() abort
+    if has_key(s:build, 'lines')
+        let l:lines = copy(s:build.lines)
+        let l:title = s:build.title
+    elseif exists('g:portable_vim_build_result')
+        let l:lines = copy(g:portable_vim_build_result.lines)
+        let l:title = get(g:portable_vim_build_result, 'title', 'Build')
+    else
+        echoerr 'No build output; run :BuildAsync or :ProjectTask first'
+        return
+    endif
+    call s:ShowReport('[Build Log: ' . l:title . ']', l:lines, 'text')
+endfunction
+function! s:BuildLogSave(path, force) abort
+    if get(s:build, 'running', 0)
+        echoerr 'Build is running; use :BuildLog to view output or wait before saving'
+        return
+    endif
+    if !exists('g:portable_vim_build_result')
+        echoerr 'No completed build to save'
+        return
+    endif
+    let l:path = empty(a:path) ? get(get(t:, 'portable_project', {}), 'log_file', '') : a:path
+    if empty(l:path)
+        echoerr 'Specify a log file or set log_file in the project profile'
+        return
+    endif
+    let l:path = fnamemodify(expand(l:path), ':p')
+    if getftype(l:path) !=# '' && !a:force
+        echoerr 'Log exists; use :BuildLogSave! to overwrite'
+        return
+    endif
+    let l:log = deepcopy(g:portable_vim_build_result)
+    let l:log.format = 'portable-vim-build-v1'
+    if has_key(l:log, 'qfid')
+        call remove(l:log, 'qfid')
+    endif
+    if !isdirectory(fnamemodify(l:path, ':h'))
+        echoerr 'Build log parent directory does not exist: ' . fnamemodify(l:path, ':h')
+        return
+    endif
+    let l:tmp = fnamemodify(l:path, ':h') . '/.vim-build-log-' . getpid() . '-' . fnamemodify(tempname(), ':t')
+    try
+        call writefile([json_encode(l:log)], l:tmp)
+        call setfperm(l:tmp, filereadable(l:path) ? getfperm(l:path) : 'rw-------')
+        if (!a:force && getftype(l:path) !=# '') || rename(l:tmp, l:path) != 0
+            throw 'Could not replace build log; existing file preserved'
+        endif
+    finally
+        call delete(l:tmp)
+    endtry
+    echom 'Build log saved: ' . l:path
+endfunction
+function! s:BuildLogLoad(path) abort
+    let l:path = empty(a:path) ? get(get(t:, 'portable_project', {}), 'log_file', '') : a:path
+    if empty(l:path)
+        echoerr 'Specify a saved log file or set log_file; use :BuildLog for current output'
+        return
+    endif
+    let l:path = fnamemodify(expand(l:path), ':p')
+    if !filereadable(l:path)
+        echoerr 'Build log does not exist: ' . l:path . '; save it with :BuildLogSave first'
+        return
+    endif
+    let l:lines = readfile(l:path)
+    if !empty(l:lines) && l:lines[0] =~# '^\s*{'
+        try
+            let l:log = json_decode(join(l:lines, "\n"))
+        catch
+            echoerr 'Invalid build log JSON'
+            return
+        endtry
+        if type(l:log) != v:t_dict || get(l:log, 'format', '') !=# 'portable-vim-build-v1'
+                    \ || type(get(l:log, 'lines', 0)) != v:t_list
+                    \ || type(get(l:log, 'root', 0)) != v:t_string
+                    \ || type(get(l:log, 'efm', 0)) != v:t_string
+                    \ || !empty(filter(copy(get(l:log, 'lines', [])), 'type(v:val) != v:t_string'))
+            echoerr 'Invalid portable build log'
+            return
+        endif
+    else
+        let l:p = get(t:, 'portable_project', {})
+        let l:log = {'lines': l:lines, 'root': get(l:p, 'root', getcwd()),
+                    \ 'efm': '%DPORTABLE_BUILD_DIR:%f,' . get(l:p, 'efm', &errorformat),
+                    \ 'status': 'unknown', 'command': '', 'time': '', 'stopped': 0}
+    endif
+    call setqflist([], ' ', {'title': 'Build log: ' . l:path . ' [exit ' . get(l:log, 'status', 'unknown') . ']',
+                \ 'lines': ['PORTABLE_BUILD_DIR:' . l:log.root] + l:log.lines,
+                \ 'efm': l:log.efm, 'context': l:log})
+    call s:OpenQuickfixInCodeArea()
+endfunction
+command! BuildLog call <SID>BuildLog()
+command! -bang -nargs=? -complete=file BuildLogSave call <SID>BuildLogSave(<q-args>, <bang>0)
+command! -nargs=? -complete=file BuildLogLoad call <SID>BuildLogLoad(<q-args>)
+
+" Build aliases retain the full commands' arguments, completion and overwrite bang.
+command! -nargs=* BA call <SID>BuildAsync(<q-args>, 0)
+command! BR call <SID>BuildResults()
+command! BS call <SID>BuildStop()
+command! BD call <SID>BuildAsync('', 1)
+command! BL call <SID>BuildLog()
+command! -bang -nargs=? -complete=file BLS call <SID>BuildLogSave(<q-args>, <bang>0)
+command! -nargs=? -complete=file BLL call <SID>BuildLogLoad(<q-args>)
+
+function! s:Absolute(path, root) abort
+    return resolve(fnamemodify(a:path =~# '^\%(/\|\a:[/\\]\)' ? a:path : a:root . '/' . a:path, ':p'))
+endfunction
+function! s:DatabaseFile() abort
+    let l:p = get(t:, 'portable_project', {})
+    if has_key(l:p, 'compilation_database')
+        return l:p.compilation_database . '/compile_commands.json'
+    endif
+    let l:root = get(l:p, 'root', expand('%:p:h'))
+    while !empty(l:root)
+        for l:path in [l:root . '/compile_commands.json', l:root . '/build/compile_commands.json']
+            if filereadable(l:path)
+                return l:path
+            endif
+        endfor
+        let l:parent = fnamemodify(l:root, ':h')
+        if l:parent ==# l:root
+            break
+        endif
+        let l:root = l:parent
+    endwhile
+    throw 'Compilation database not found; use :BuildDatabase or select its directory'
+endfunction
+function! s:CompilationEntries() abort
+    let l:path = s:DatabaseFile()
+    if !filereadable(l:path)
+        throw 'Compilation database not found: ' . l:path
+    endif
+    let l:db = json_decode(join(readfile(l:path), "\n"))
+    if type(l:db) != v:t_list
+        throw 'Compilation database must be a JSON array'
+    endif
+    let l:file = resolve(expand('%:p'))
+    let l:entries = []
+    for l:entry in l:db
+        if type(l:entry) == v:t_dict && has_key(l:entry, 'directory') && has_key(l:entry, 'file')
+            let l:entry = deepcopy(l:entry)
+            let l:entry.directory = s:Absolute(l:entry.directory, fnamemodify(l:path, ':h'))
+            if s:Absolute(l:entry.file, l:entry.directory) ==# l:file
+                call add(l:entries, l:entry)
+            endif
+        endif
+    endfor
+    return l:entries
+endfunction
+if has('python3')
+    " Keep Python indentation inside strings: gg=G must only indent Vimscript.
+    let s:compilation_parser = join([
+                \ 'import os as _portable_os',
+                \ 'import shlex as _portable_shlex',
+                \ '',
+                \ 'def _portable_compilation_split(command):',
+                \ '    if _portable_os.name != ''nt'':',
+                \ '        return _portable_shlex.split(command)',
+                \ '    import ctypes',
+                \ '    from ctypes import wintypes',
+                \ '    split = ctypes.windll.shell32.CommandLineToArgvW',
+                \ '    split.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_int)]',
+                \ '    split.restype = ctypes.POINTER(wintypes.LPWSTR)',
+                \ '    count = ctypes.c_int()',
+                \ '    argv = split(command, ctypes.byref(count))',
+                \ '    if not argv:',
+                \ '        raise ValueError(''Invalid Windows compilation command'')',
+                \ '    try:',
+                \ '        return [argv[i] for i in range(count.value)]',
+                \ '    finally:',
+                \ '        free = ctypes.windll.kernel32.LocalFree',
+                \ '        free.argtypes = [ctypes.c_void_p]',
+                \ '        free.restype = ctypes.c_void_p',
+                \ '        free(ctypes.cast(argv, ctypes.c_void_p))'
+                \ ], "\n")
+    execute 'python3 exec(' . json_encode(s:compilation_parser) . ')'
+endif
+function! s:CompilationArgv(entry) abort
+    if has_key(a:entry, 'arguments')
+        let l:args = copy(a:entry.arguments)
+    elseif has_key(a:entry, 'command') && has('python3')
+        " The database contains a command, not a script: tokenize, never eval.
+        let l:args = py3eval('_portable_compilation_split(' . json_encode(a:entry.command) . ')')
+    else
+        throw 'Database requires arguments arrays, or command with Vim +python3'
+    endif
+    if type(l:args) != v:t_list || empty(l:args) || !empty(filter(copy(l:args), 'type(v:val) != v:t_string'))
+        throw 'Invalid compilation argument list'
+    endif
+    if l:args[0] =~# '[/\\]'
+        let l:args[0] = s:Absolute(l:args[0], a:entry.directory)
+    else
+        let l:args[0] = exepath(l:args[0])
+    endif
+    if empty(l:args[0]) || !executable(l:args[0])
+        throw 'Compilation database compiler is unavailable'
+    endif
+    return l:args
+endfunction
+function! s:ProjectHealth() abort
+    let l:p = get(t:, 'portable_project', {})
+    let l:lines = ['Project: ' . get(l:p, 'name', '(none)'), 'Root: ' . get(l:p, 'root', getcwd()),
+                \ 'Build: ' . get(l:p, 'build', &makeprg),
+                \ 'Configured clangd: ' . get(g:, 'ycm_clangd_binary_path', '(YCM bundled)'),
+                \ 'clangd args: ' . string(get(g:, 'ycm_clangd_args', [])),
+                \ 'Vim Python3/job/channel: ' . has('python3') . '/' . has('job') . '/' . has('channel')]
+    for l:tool in ['clang', 'clangd', 'rg', 'git', 'bear', 'cmake', 'make']
+        call add(l:lines, l:tool . ': ' . (executable(l:tool) ? exepath(l:tool) : 'MISSING'))
+    endfor
+    try
+        call add(l:lines, 'Database: ' . s:DatabaseFile())
+        let l:entries = s:CompilationEntries()
+        call add(l:lines, 'Current file compilation entries: ' . len(l:entries))
+        for l:entry in l:entries[:4]
+            let l:argv = s:CompilationArgv(l:entry)
+            call add(l:lines, 'Compiler: ' . l:argv[0])
+            call add(l:lines, 'Directory: ' . l:entry.directory)
+            call add(l:lines, 'Arguments: ' . string(l:argv))
+            call extend(l:lines, split(system(shellescape(l:argv[0]) . ' --version'), "\n")[:1])
+        endfor
+    catch
+        call add(l:lines, 'Database check: ' . v:exception)
+    endtry
+    if exists(':YcmDebugInfo') == 2
+        try
+            call extend(l:lines, ['', 'Running YCM:'] + split(execute('silent YcmDebugInfo'), "\n"))
+        catch
+            call add(l:lines, 'YCM status: ' . v:exception)
+        endtry
+    else
+        call add(l:lines, 'YCM command: MISSING')
+    endif
+    let g:portable_vim_health_report = copy(l:lines)
+    call s:ShowReport('[Project Health]', l:lines, 'text')
+endfunction
+command! ProjectHealth call <SID>ProjectHealth()
+
+function! s:InspectionOutput(channel, line) abort
+    call add(s:inspection.lines, a:line)
+endfunction
+function! s:InspectionClosed(channel) abort
+    let s:inspection.closed = 1
+    call s:InspectionFinished()
+endfunction
+function! s:InspectionExited(job, status) abort
+    let s:inspection.status = a:status
+    call s:InspectionFinished()
+endfunction
+function! s:InspectionFinished() abort
+    if !get(s:inspection, 'closed', 0) || !has_key(s:inspection, 'status')
+        return
+    endif
+    let s:inspection.running = 0
+    let g:portable_vim_inspection_result = {'status': s:inspection.status, 'source': s:inspection.source,
+                \ 'argv': copy(s:inspection.argv), 'root': s:inspection.root, 'mode': s:inspection.mode,
+                \ 'lines': copy(s:inspection.lines)}
+    try
+        if !s:inspection.status && filereadable(s:inspection.output)
+            let l:lines = readfile(s:inspection.output)
+            call s:ShowReport('[' . s:inspection.mode . ': ' . fnamemodify(s:inspection.source, ':t') . ']',
+                        \ l:lines, s:inspection.mode ==# 'Preprocess' ? 'c' : 'asm')
+        else
+            call setqflist([], ' ', {'title': s:inspection.mode . ' failed',
+                        \ 'lines': ['PORTABLE_BUILD_DIR:' . s:inspection.root] + s:inspection.lines,
+                        \ 'efm': '%DPORTABLE_BUILD_DIR:%f,' . s:inspection.efm,
+                        \ 'context': g:portable_vim_inspection_result})
+            echom s:inspection.mode . ' failed: exit ' . s:inspection.status . ' (use :copen)'
+        endif
+    finally
+        call delete(s:inspection.output)
+    endtry
+endfunction
+function! s:InspectCompilation(mode, index) abort
+    if !exists('*job_start') || get(s:inspection, 'running', 0)
+        echoerr 'Inspection needs Vim +job and no running inspection'
+        return
+    endif
+    if &buftype !=# '' || &filetype !~# '^\%(c\|cpp\)$'
+        echoerr 'Open a C/C++ source file with a compilation database entry'
+        return
+    endif
+    try
+        let l:entries = s:CompilationEntries()
+        let l:index = empty(a:index) ? 1 : str2nr(a:index)
+        if a:index !~# '^\d*$' || l:index < 1 || l:index > len(l:entries)
+            throw 'No matching compilation entry (index is 1-based)'
+        endif
+        let l:entry = l:entries[l:index - 1]
+        let l:argv = s:CompilationArgv(l:entry)
+        if fnamemodify(l:argv[0], ':t') !~# '\%(clang\|gcc\|g++\|cc\|c++\)\%(-\d\+\)\?\%(.exe\)\?$'
+            throw 'Inspection supports direct GCC/Clang drivers; export unwrapped arguments'
+        endif
+        let l:clean = [l:argv[0]]
+        let l:i = 1
+        while l:i < len(l:argv)
+            let l:arg = l:argv[l:i]
+            if index(['-o', '--output', '-MF', '-MT', '-MQ', '-MJ', '--serialize-diagnostics', '-serialize-diagnostics'], l:arg) >= 0
+                let l:i += 2
+                continue
+            elseif l:arg =~# '^@' || l:arg ==# '-Xclang' || l:arg ==# '-Xassembler' || l:arg ==# '-Xpreprocessor' || l:arg =~# '^-[Ww][pa],'
+                throw 'Inspection requires expanded driver arguments (no response files or forwarded compiler/preprocessor options)'
+            elseif l:arg =~# '^\%(-c\|-S\|-E\|-fsyntax-only\|-M\|-MM\|-MD\|-MMD\|-MP\|-MG\|--coverage\|-fprofile-arcs\|-ftest-coverage\)$'
+                        \ || l:arg =~# '^\%(-o.\+\|-M[FQTJ].\+\|-save-temps\|-fprofile-.*generate\|-ftime-trace\|-fsave-optimization-record\|-foptimization-record-file=\|--output=\|--serialize-diagnostics=\)'
+                let l:i += 1
+                continue
+            endif
+            if a:mode ==# 'Assembly' && (l:arg =~# '^-flto' || l:arg ==# '-emit-llvm')
+                let l:i += 1
+                continue
+            endif
+            call add(l:clean, l:arg)
+            let l:i += 1
+        endwhile
+        let l:output = tempname() . (a:mode ==# 'Preprocess' ? '.i' : '.s')
+        call extend(l:clean, [a:mode ==# 'Preprocess' ? '-E' : '-S', '-fdiagnostics-color=never', '-o', l:output])
+        let s:inspection = {'running': 1, 'closed': 0, 'argv': l:clean, 'root': l:entry.directory,
+                    \ 'source': expand('%:p'), 'output': l:output, 'lines': [], 'mode': a:mode,
+                    \ 'efm': get(get(t:, 'portable_project', {}), 'efm', &errorformat)}
+        if &modified
+            echom 'Inspection uses the saved file; buffer changes remain unsaved'
+        endif
+        let s:inspection.job = job_start(l:clean, {'cwd': l:entry.directory, 'in_io': 'null',
+                    \ 'out_mode': 'nl', 'err_io': 'out', 'out_cb': function('<SID>InspectionOutput'),
+                    \ 'close_cb': function('<SID>InspectionClosed'), 'exit_cb': function('<SID>InspectionExited')})
+        if job_status(s:inspection.job) ==# 'fail'
+            let s:inspection.running = 0
+            call delete(l:output)
+            throw 'Could not start compiler inspection'
+        endif
+    catch
+        echoerr v:exception
+    endtry
+endfunction
+command! -nargs=? Preprocess call <SID>InspectCompilation('Preprocess', <q-args>)
+command! -nargs=? Assembly call <SID>InspectCompilation('Assembly', <q-args>)
+function! s:InspectionStop() abort
+    if get(s:inspection, 'running', 0)
+        call job_stop(s:inspection.job)
+    endif
+endfunction
+command! InspectionStop call <SID>InspectionStop()
+
+" Last: host-specific font, clangd, trusted YCM config and optional plugin setup.
+let s:local = s:home . '/vimrc.local'
+if filereadable(s:local)
+    execute 'source ' . fnameescape(s:local)
+endif
+" vim: set sw=4 ts=4 et ft=vim:

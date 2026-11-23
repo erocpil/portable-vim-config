@@ -1,0 +1,16 @@
+# Third-party Vim plugin revisions
+#
+# These repositories remain independently managed and are not vendored into
+# the ~/.vim configuration repository.  Update this file after deliberately
+# updating and validating plugins. Entries without a URL are checked as submodules.
+
+bundle/Vundle.vim 5548a1a937d4e72606520c7484cd384e6c76b565 https://github.com/VundleVim/Vundle.vim.git
+bundle/YouCompleteMe d4c91430b70a21ce471c8572400b647d313995b4 https://github.com/ycm-core/YouCompleteMe.git
+bundle/YouCompleteMe/third_party/ycmd bd0d133d070199717cddfcfa945d3236c4e3a580
+bundle/YouCompleteMe/third_party/ycmd/third_party/jedi_deps/jedi 41e9e957e7fce02e63a41af66c9c891e33411569
+bundle/nerdcommenter a462bbda1e26f44fb3d3eb9d9d1c6a07aa98e665 https://github.com/preservim/nerdcommenter.git
+bundle/nerdtree 690d061b591525890f1471c6675bcb5bdc8cdff9 https://github.com/preservim/nerdtree.git
+bundle/tagbar 07cb8247487208124978daff8e13624667635457 https://github.com/preservim/tagbar.git
+bundle/vim-indent-guides a1e1390c0136e63e813d051de2003bf0ee18ae30 https://github.com/nathanaelkane/vim-indent-guides.git
+config/.vim-pack/pack/portable/start/vim-fugitive 3b753cf8c6a4dcde6edee8827d464ba9b8c4a6f0 https://github.com/tpope/vim-fugitive.git
+config/.vim-pack/pack/portable/opt/editorconfig c0227885a06b155d5aa5465e08b9800e8c939f70 https://github.com/editorconfig/editorconfig-vim.git

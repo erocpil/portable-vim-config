@@ -1,0 +1,3 @@
+# Preserve generated validation output exactly as captured.
+config/validation/**/*.log -whitespace
+config/validation/**/version.txt -whitespace

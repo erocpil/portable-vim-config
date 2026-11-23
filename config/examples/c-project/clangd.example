@@ -1,0 +1,14 @@
+# Optional project .clangd: merge into existing settings rather than overwrite.
+# If your compilation database is outside build/, uncomment and adjust:
+# CompileFlags:
+#   CompilationDatabase: out
+
+# Limit extra checks to project-owned C sources and headers.
+If:
+  PathMatch: .*\.(c|h)
+  PathExclude: (third_party|vendor|build|out)/.*
+Diagnostics:
+  ClangTidy:
+    Add:
+      - clang-analyzer-core.NullDereference
+      - bugprone-sizeof-expression

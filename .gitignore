@@ -1,0 +1,28 @@
+# Independently managed third-party plugin checkouts (including YCM/ycmd).
+/bundle/
+/config/.vim-pack/
+
+# Maintained themes and ManShow load from config/ via runtimepath.
+# Root colors/plugins are unrelated legacy runtime files.
+/colors/
+/plugin/
+
+# Local backups and editor/generated files.
+/backups/
+/.netrwhist
+*.backup-*
+*.disabled-*
+*.sw?
+*.swo
+*.un~
+**/__pycache__/
+*.py[cod]
+.DS_Store
+/tags
+/GTAGS
+/GRTAGS
+/GPATH
+
+# Last shared configuration applied by maintenance/deploy.sh.
+/config/.deployed-revision
+/vimrc.local

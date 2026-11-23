@@ -1,0 +1,2 @@
+" Maintained configuration: ~/.vim/config/dotvimrc
+execute "source " . fnameescape(expand("~/.vim/config/dotvimrc"))

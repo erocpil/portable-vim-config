@@ -1,0 +1,33 @@
+" 本机设置：由 ~/.vim/config/dotvimrc 在最后自动加载。
+" 修改工具链路径后建议重启 mvim；已运行的 YCM 可用 :YcmRestartServer 重启。
+scriptencoding utf-8
+
+" LaOS 源码目录。配置迁移后不再依赖示例文件的相对位置。
+let g:portable_laos_root = expand('~/src/LaOS-private')
+
+" 本机 Homebrew LLVM 22。升级或迁移主机时只需修改此目录。
+" 项目示例据此构造构建命令；这里不修改全局 PATH。
+let g:portable_llvm_bin = '/opt/homebrew/opt/llvm@22/bin'
+
+" YCM 的 C/C++ 语义后端与项目工具链保持同版本。
+" 可执行文件缺失时保留主配置的默认选择，避免启动时绑定失效路径。
+if executable(g:portable_llvm_bin . '/clangd')
+    let g:ycm_clangd_binary_path = g:portable_llvm_bin . '/clangd'
+endif
+
+" 单文件算法练习编译器，不影响普通 :make 或所选项目的 build。
+if executable(g:portable_llvm_bin . '/clang')
+    let g:portable_practice_cc = g:portable_llvm_bin . '/clang'
+endif
+if executable(g:portable_llvm_bin . '/clang++')
+    let g:portable_practice_cxx = g:portable_llvm_bin . '/clang++'
+endif
+
+" 项目仍按需显式选择；不在启动时进入 LaOS 目录或触发构建：
+" :source ~/.vim/config/examples/projects/laos.vim
+" :Project laos-arm64
+
+" 算法练习默认 C17/C++17。使用 ranges 的文件打开后单独设置：
+" :let b:portable_practice_standard = 'c++20'
+" :write
+" :PracticeRun!
