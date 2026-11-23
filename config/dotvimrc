@@ -16,9 +16,10 @@ if index(split(&runtimepath, ','), s:home) < 0
     execute 'set runtimepath^=' . escape(s:home, ' ,\\')
 endif
 
-" Adjacent packages travel with this configuration, including when using -u.
+" Prefer host packages, with adjacent packages for older deployments.
 let s:config_dir = expand('<sfile>:p:h')
-let s:packages = s:config_dir . '/.vim-pack'
+let s:packages = isdirectory(s:home . '/.vim-pack')
+            \ ? s:home . '/.vim-pack' : s:config_dir . '/.vim-pack'
 if get(g:, 'portable_vim_plugins', 1) && isdirectory(s:packages) && index(split(&packpath, ','), s:packages) < 0
     let &packpath = escape(s:packages, ' ,\\') . ',' . &packpath
 endif

@@ -1,4 +1,4 @@
-" 本机设置：由 ~/.vim/config/dotvimrc 在最后自动加载。
+" 本机设置：由 dotvimrc 在最后自动加载。
 " 修改工具链路径后建议重启 mvim；已运行的 YCM 可用 :YcmRestartServer 重启。
 scriptencoding utf-8
 
@@ -24,7 +24,7 @@ if executable(g:portable_llvm_bin . '/clang++')
 endif
 
 " 项目仍按需显式选择；不在启动时进入 LaOS 目录或触发构建：
-" :source ~/.vim/config/examples/projects/laos.vim
+" :source ~/.vim/config/config/examples/projects/laos.vim
 " :Project laos-arm64
 
 " 算法练习默认 C17/C++17。使用 ranges 的文件打开后单独设置：

@@ -2,11 +2,13 @@
 
 全新机器、Windows 部署及插件安装见 [三端使用说明](README.md)。
 
-在本仓库的 `config/` 编辑并提交共享配置。macOS 和 Linux 的 `~/.vim/config` 是部署目标，由 `~/.vimrc` 加载。Windows 使用 `~/vimfiles/config` 和 `~/_vimrc`。
+在本仓库的 `config/` 编辑并提交共享配置。macOS 和 Linux 的 `~/.vim/config` 是日常使用的 Git 检出，由 `~/.vimrc` 加载。Windows 使用 `~/vimfiles/config` 和 `~/_vimrc`。
 
 各主机的 `~/.vim/vimrc.local` 保持独立，用于 Python、LLVM、项目和 GUI 设置。`config/maintenance/hosts/` 提供示例。LaOS 项目示例需要手动指定实际的内核仓库和可用工具链。
 
-## 预览和部署
+## 旧版复制式部署
+
+以下命令适用于仍使用复制式部署的主机。使用 Git 检出的主机直接拉取更新。
 
 在仓库根目录运行：
 
@@ -24,12 +26,12 @@ config/maintenance/deploy.sh --apply --host user@gentoo-host
 
 在各主机的 `~/src/vim` 执行 `git pull --ff-only`。Gentoo 访问 GitHub 超时时，可在 macOS 更新官方源码，使用 Gentoo 当前提交作为 Git bundle 的基线，再经 SSH 转运。具体命令见 `config/maintenance/build-gentoo.sh`。
 
-在目标主机运行对应的脚本。源码默认读取 `~/src/vim` 的 HEAD，可用 `VIM_SOURCE_DIR` 指定另一份仓库。需要纳入构建的源码改动须先提交。 如需从 Vim 源码目录用 `bash c.sh` 操作，可把已部署的 `~/.vim/config/maintenance/c.sh` 复制到源码目录。脚本将提交号和日志留在构建目录。终端 Vim 和 YCM 均使用 Python 3.13。
+在目标主机运行对应的脚本。源码默认读取 `~/src/vim` 的 HEAD，可用 `VIM_SOURCE_DIR` 指定另一份仓库。需要纳入构建的源码改动须先提交。 如需从 Vim 源码目录用 `bash c.sh` 操作，可把`~/.vim/config/config/maintenance/c.sh` 复制到源码目录。脚本将提交号和日志留在构建目录。终端 Vim 和 YCM 均使用 Python 3.13。
 
 | 主机 | 脚本 | 安装 |
 |---|---|---|
-| macOS | `~/.vim/config/maintenance/build-macos.sh` | `~/.local/opt/vim`，MacVim 单独更新 |
-| Gentoo | `~/.vim/config/maintenance/build-gentoo.sh` | `~/.local/opt/vim`，构建纯终端版与 GTK3 版 |
+| macOS | `~/.vim/config/config/maintenance/build-macos.sh` | `~/.local/opt/vim`，MacVim 单独更新 |
+| Gentoo | `~/.vim/config/config/maintenance/build-gentoo.sh` | `~/.local/opt/vim`，构建纯终端版与 GTK3 版 |
 
 两台机器都在 `~/src/vim` 执行 `bash c.sh` 构建、验证并安装。`bash c.sh --build` 只构建和暂存，`bash c.sh --install` 安装最近一次成功暂存的产物，也可用 `--install <构建目录>` 指定产物。加上 `--verbose` 可实时查看构建输出和安装步骤，完整输出仍写入日志。暂存目录默认分别位于 `~/.cache/vim-macos-build` 和 `~/.cache/vim-gentoo-build`。切换前会验证暂存产物并备份旧安装。安装成功时，构建目录下的 `install-record.txt` 记录源码提交、安装路径及备份位置。Gentoo 的安装入口是 `~/.local/bin/vim` 和 `~/.local/bin/gvim`。将 `~/.local/bin` 加入 PATH，即可用这两个命令启动。登录桌面后可再验证 GTK3 窗口、剪贴板、字体和气泡。
 

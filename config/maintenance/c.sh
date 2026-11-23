@@ -17,4 +17,8 @@ case $(uname -s) in
         ;;
     *) echo 'Use official Vim binaries on this platform.' >&2; exit 1 ;;
 esac
-exec "$HOME/.vim/config/maintenance/$script" "$@"
+config=$HOME/.vim/config
+if [ -e "$config/.git" ]; then
+    config=$config/config
+fi
+exec "$config/maintenance/$script" "$@"

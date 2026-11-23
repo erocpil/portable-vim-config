@@ -6,6 +6,10 @@ if [[ ${1:-} == --receive ]]; then
     mode=$3
     config="$HOME/.vim/config"
     vimrc="$HOME/.vimrc"
+    if [[ -e $config/.git ]]; then
+        echo "Configuration is a Git checkout. Update it with git pull --ff-only." >&2
+        exit 2
+    fi
     printf 'Shared configuration %s\n' "$(cat "$payload/config/.deployed-revision")"
     rsync -rcpli --dry-run "$payload/config/" "$config/"
     rsync -rcpli --dry-run "$payload/vimrc" "$vimrc"

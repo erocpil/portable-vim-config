@@ -43,7 +43,10 @@ def smoke(home, editor, checks):
     runtime, entry = paths(home)
     env = os.environ.copy()
     env.update(HOME=str(home), VIM_SETUP_CHECKS=checks)
-    env["VIM_SETUP_CONFIG"] = (runtime / "config/dotvimrc").as_posix()
+    config = runtime / "config"
+    if (config / ".git").exists():
+        config /= "config"
+    env["VIM_SETUP_CONFIG"] = (config / "dotvimrc").as_posix()
     with tempfile.TemporaryDirectory(prefix="vim-smoke-") as name:
         scratch = Path(name)
         result, log = scratch / "result", scratch / "vim.log"
@@ -64,6 +67,8 @@ def smoke(home, editor, checks):
 
 def deploy(args):
     runtime, entry = paths(args.home)
+    if (runtime / "config/.git").exists():
+        raise RuntimeError("Configuration is a Git checkout. Update it with git pull --ff-only.")
     repo = git(HERE, "rev-parse", "--show-toplevel")
     revision = git(repo, "rev-parse", "--verify", args.revision + "^{commit}")
     data = run("git", "-C", repo, "archive", "--format=zip", revision, "config",
@@ -182,6 +187,9 @@ def plugins(args):
         if args.skip_ycm and path == "bundle/YouCompleteMe":
             continue
         target = runtime / path
+        if path.startswith("config/.vim-pack/"):
+            if (runtime / ".vim-pack").is_dir() or (runtime / "config/.git").exists():
+                target = runtime / Path(path).relative_to("config")
         if target.exists() or target.is_symlink():
             check_plugin(target, revision, nested[path])
             print(f"Pinned: {path} {revision}")

@@ -2,45 +2,39 @@
 
 这套配置在 macOS、Linux 和 Windows 上共用 `dotvimrc`、配色、ManShow、快捷键和项目命令。Vim、编译器和 YCM 原生模块使用本机版本。macOS 和 Gentoo 的 Vim 源码构建流程见 [维护说明](README-git.md)。
 
-## 首次部署与日常更新
+## macOS 和 Linux
 
-先克隆仓库到单独的工作目录。
+日常使用的仓库放在 `~/.vim/config`，开发时可以另建一份检出。如果已经有 `~/.vim/config` 或 `~/.vimrc`，先将旧版备份到其他位置。旧部署中的 `~/.vim/config/.vim-pack` 如有独立安装的插件，可从备份移到 `~/.vim/.vim-pack`。已有 `~/.vim/bundle` 和 `~/.vim/vimrc.local` 可以继续使用。
 
-```sh
-git clone https://github.com/erocpil/portable-vim-config.git
-cd portable-vim-config
+    git clone https://github.com/erocpil/portable-vim-config.git ~/.vim/config
+    cp ~/.vim/config/config/maintenance/vimrc.checkout ~/.vimrc
+
+`~/.vimrc` 位于仓库之外。也可以手动创建该文件，内容如下：
+
+```vim
+execute "source " . fnameescape(expand("~/.vim/config/config/dotvimrc"))
 ```
 
-配置部署需要 Git、Vim 以及 Python 3.10 或更新版本。C/C++ 建议使用 LLVM 的 `clang`、`clang++` 和 `clangd`。Windows 可安装 [Vim 官方构建](https://github.com/vim/vim-win32-installer/releases)，并让 Vim 和 LLVM 可从 PATH 找到。运行 C 程序时，Clang 还需要能找到兼容的系统头文件、运行库和链接器。
+配色与 ManShow 从仓库的 `config/` 加载。本机设置写在 `~/.vim/vimrc.local`，主机示例见 `config/maintenance/hosts/`。日常更新后重新启动 Vim：
 
-macOS 和 Linux，在仓库目录中执行：
+    cd ~/.vim/config
+    git pull --ff-only
 
-```sh
-git pull --ff-only
-python3 config/maintenance/portable-setup.py deploy
-python3 config/maintenance/portable-setup.py deploy --apply
-python3 config/maintenance/portable-setup.py plugins
-```
+首次安装插件时，在仓库根目录运行 `python3 config/maintenance/portable-setup.py plugins`。该工具需要 Python 3.10 或更新版本。
 
-Windows PowerShell，在仓库目录中执行：
+## Windows
+
+建议使用 [Vim 官方构建](https://github.com/vim/vim-win32-installer/releases)，并让 Vim 和 LLVM 可从 PATH 找到。运行 C 程序还需要系统头文件、运行库和链接器。在 PowerShell 中执行：
 
 ```powershell
-git pull --ff-only
+git clone https://github.com/erocpil/portable-vim-config.git
+cd portable-vim-config
 .\config\maintenance\deploy-windows.ps1
 .\config\maintenance\deploy-windows.ps1 -Apply
 py -3 config/maintenance/portable-setup.py plugins
 ```
 
-无 `--apply` 或 `-Apply` 时只预览。Windows 脚本可用 `-Vim 'C:\路径\vim.exe'` 指定 Vim，macOS 或 Linux 可通过 `--vim` 指定。应用时会备份改动前的文件、检查 Vim 启动，并记录部署的提交。原 Linux/macOS SSH 部署方式仍见维护说明。
-
-| 设置 | macOS / Linux | Windows |
-|---|---|---|
-| Vim 入口 | `~/.vimrc` | `~/_vimrc` |
-| 共享配置 | `~/.vim/config` | `~/vimfiles/config` |
-| 本机覆盖 | `~/.vim/vimrc.local` | `~/vimfiles/vimrc.local` |
-| 主机示例 | `config/maintenance/hosts/` | `config/maintenance/hosts/windows.vim.example` |
-
-部署只覆盖仓库跟踪的共享文件，保留已有插件目录和本机覆盖。新的提交若删除共享文件，应手动移走目标上遗留的文件。日常改配置后拉取并重新部署即可，Vim 二进制和插件独立更新。
+脚本默认预览，`-Apply` 会备份现有文件、写入 `~/_vimrc` 和 `~/vimfiles/config`，并检查 Vim 是否正常启动。本机设置写在 `~/vimfiles/vimrc.local`。更新时在仓库中拉取并重新应用脚本。可用 `-Vim 'C:\路径\vim.exe'` 指定 Vim。
 
 ## 插件和 YCM
 

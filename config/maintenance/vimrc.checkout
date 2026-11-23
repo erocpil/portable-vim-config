@@ -1,0 +1,2 @@
+" Load the portable-vim-config checkout.
+execute "source " . fnameescape(expand("~/.vim/config/config/dotvimrc"))
