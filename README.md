@@ -1,6 +1,10 @@
 # portable-vim-config
 
-这套配置在 macOS、Linux 和 Windows 上共用 `dotvimrc`、配色、ManShow、快捷键和项目命令。Vim、编译器和 YCM 原生模块使用本机版本。macOS 和 Gentoo 的 Vim 源码构建流程见 [维护说明](README-git.md)。
+面向 C/C++ 开发的跨平台 Vim 配置，支持 macOS、Linux 和 Windows。提供 YCM/clangd 语义补全与跳转、异步构建、Quickfix 诊断，以及用 `:PracticeRun` 编译运行练习程序的工作流。
+
+[![Vim 配置检查](https://github.com/erocpil/portable-vim-config/actions/workflows/vim-smoke.yml/badge.svg?branch=main)](https://github.com/erocpil/portable-vim-config/actions/workflows/vim-smoke.yml)
+
+Vim、编译器和 YCM 原生模块使用本机版本。macOS 和 Gentoo 的 Vim 源码构建流程见 [维护说明](README-git.md)。
 
 ## 界面预览
 
