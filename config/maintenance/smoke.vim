@@ -9,7 +9,13 @@ try
     call assert_equal(2, exists(':PracticeRun'))
     if exists(':EditVimConfig') == 2
         EditVimConfig
-        call assert_equal(resolve(fnamemodify($VIM_SETUP_CONFIG, ':p')), resolve(expand('%:p')))
+        let s:expected = resolve(fnamemodify($VIM_SETUP_CONFIG, ':p'))
+        let s:opened = resolve(expand('%:p'))
+        if has('win32') || has('win64')
+            call assert_equal(tolower(tr(s:expected, '\', '/')), tolower(tr(s:opened, '\', '/')))
+        else
+            call assert_equal(s:expected, s:opened)
+        endif
         call assert_equal('vim', &filetype)
     endif
 

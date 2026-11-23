@@ -261,6 +261,7 @@ if has('persistent_undo') && isdirectory(s:home . '/undo')
 endif
 " Use the theme's RGB colors in terminals with true-color support.
 if !has('gui_running') && exists('+termguicolors')
+            \ && (!s:windows || has('vcon'))
     set termguicolors
 endif
 set background=dark
@@ -302,6 +303,11 @@ endfunction
 " loader.  Override this path only when embedding this file elsewhere.
 let g:portable_vim_config_file = get(g:, 'portable_vim_config_file',
             \ s:config_dir . '/dotvimrc')
+function! s:IsVimConfig(path) abort
+    let l:file = resolve(fnamemodify(a:path, ':p'))
+    let l:config = resolve(fnamemodify(g:portable_vim_config_file, ':p'))
+    return s:windows ? tr(l:file, '\', '/') ==? tr(l:config, '\', '/') : l:file ==# l:config
+endfunction
 function! s:EditVimConfig() abort
     execute 'edit ' . fnameescape(g:portable_vim_config_file)
 endfunction
@@ -730,7 +736,7 @@ endfunction
 
 " Keep Vim's function syntax folds; add column-zero control blocks separately.
 function! s:VimFolds() abort
-    if resolve(expand('%:p')) ==# resolve(fnamemodify(g:portable_vim_config_file, ':p'))
+    if s:IsVimConfig(expand('%:p'))
         let &l:foldexpr = expand('<SID>') . 'ConfigFold(v:lnum)'
         setlocal foldmethod=expr foldtext=foldtext() foldnestmax=1
         return
@@ -1110,7 +1116,7 @@ augroup PortableVimRetained
     autocmd BufReadPre *.bin if executable('xxd') | setlocal binary | endif
     autocmd BufReadPost *.bin call <SID>HexRead()
     autocmd BufWriteCmd *.bin call <SID>HexWrite(expand('<afile>:p'))
-    autocmd BufWritePost * if resolve(fnamemodify(expand('<afile>'), ':p')) ==# resolve(fnamemodify(g:portable_vim_config_file, ':p')) | ReloadVimConfig | endif
+    autocmd BufWritePost * if <SID>IsVimConfig(expand('<afile>')) | ReloadVimConfig | endif
 augroup END
 
 " Portable terminal cursor shapes; no unsupported OSC color changes.
