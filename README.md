@@ -8,6 +8,10 @@
 
 在 MacVim 中编辑 C 示例，左侧用 Tagbar 浏览函数，右下方显示 `:PracticeRun` 编译并运行后的输出。
 
+![Gentoo 终端 Vim 使用 Celibate 配色，Quickfix 中的 Clang 警告定位到 C 源码第 18 行。](docs/images/gentoo-celibate-quickfix.webp)
+
+在 Gentoo 的终端 Vim 中使用 Celibate 配色。Clang 报告了一个未使用的变量，从 Quickfix 可以直接跳到 `scale` 的声明。
+
 ## macOS 和 Linux
 
 日常使用的仓库放在 `~/.vim/config`，开发时可以另建一份检出。如果已经有 `~/.vim/config` 或 `~/.vimrc`，先将旧版备份到其他位置。旧部署中的 `~/.vim/config/.vim-pack` 如有独立安装的插件，可从备份移到 `~/.vim/.vim-pack`。已有 `~/.vim/bundle` 和 `~/.vim/vimrc.local` 可以继续使用。
