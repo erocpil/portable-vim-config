@@ -15,7 +15,9 @@
 execute "source " . fnameescape(expand("~/.vim/config/config/dotvimrc"))
 ```
 
-配色与 ManShow 从仓库的 `config/` 加载。本机设置写在 `~/.vim/vimrc.local`，主机示例见 `config/maintenance/hosts/`。日常更新后重新启动 Vim：
+Vim 默认读取 `~/.vimrc`，由这条语句显式加载主配置。路径里的第一层 `config` 是本项目选用的 Git 检出目录 `~/.vim/config`，第二层是仓库自带的 `config/` 子目录。主配置会把内层目录加入 `runtimepath`，供 Vim 查找配色和 ManShow 插件。
+
+本机设置写在 `~/.vim/vimrc.local`，主机示例见 `config/maintenance/hosts/`。日常更新后重新启动 Vim：
 
     cd ~/.vim/config
     git pull --ff-only
