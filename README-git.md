@@ -37,4 +37,57 @@ config/maintenance/deploy.sh --apply --host user@gentoo-host
 
 ## 第三方插件与 YCM
 
-`bundle/` 和 `config/.vim-pack/` 独立于配置 Git 仓库。`config/plugins.lock` 记录核对过的提交。新增机器可用 `config/maintenance/portable-setup.py plugins` 按清单安装插件源码。YCM/ycmd 的原生扩展在各主机上用各自的 Python 3.13 构建。Gentoo 使用 `/usr/bin/python3.13`，macOS 使用 Python Framework 3.13。更新 Python 或 YCM 后应验证服务启动和 C 语言语义跳转。构建和依赖说明见 [YCM 官方文档](https://github.com/ycm-core/YouCompleteMe#installation)。
+YCM 安装在 `~/.vim/bundle/YouCompleteMe`，Windows 安装在 `~/vimfiles/bundle/YouCompleteMe`。本机编译需要 CMake、C++ 工具链和 Python 开发头文件。Vim 需要 `+python3`，`ycm_core` 必须用运行 ycmd 的 Python 和对应架构构建。若本机覆盖文件中设置了 `g:ycm_server_python_interpreter`，让它与 `--python` 指向同一解释器。项目目前在 macOS 和 Gentoo 使用 Python 3.13。
+
+### macOS 和 Gentoo
+
+以下命令从配置仓库根目录运行。首次安装配置后，先用 `python3 config/maintenance/portable-setup.py plugins --skip-ycm` 准备 Vundle 和其他插件。随后运行对应平台的命令：
+
+```sh
+# macOS
+python3 config/maintenance/portable-setup.py ycm \
+  --python /Library/Frameworks/Python.framework/Versions/3.13/bin/python3 \
+  --vim "$(command -v mvim)"
+
+# Gentoo 普通用户
+/usr/bin/python3.13 config/maintenance/portable-setup.py ycm \
+  --python /usr/bin/python3.13 --vim "$HOME/.local/bin/vim"
+
+# Gentoo root 账户使用的 Vim
+/usr/bin/python3.13 config/maintenance/portable-setup.py ycm \
+  --python /usr/bin/python3.13 --vim /root/.local/bin/vim --build-user nobody
+```
+
+Linux 若以 root 安装，可用 `--build-user` 指定已有的普通账号。工具通过 `runuser` 让该账号在 `/var/tmp` 下构建，然后由安装账号完成验证和切换。脚本会在暂存目录编译并用当前 Vim 配置测试 C 函数定义跳转。通过后才替换插件，并在正式路径再测试一次。安装后验证失败时会恢复旧版。此前的插件目录备份在 `~/.vim/backups/ycm-*/YouCompleteMe`，成功后脚本会打印确切路径。可用 `--verbose` 查看详细构建输出。
+
+本项目默认使用系统安装的 `clangd`，可在 `vimrc.local` 中通过 `g:ycm_clangd_binary_path` 指定路径。若希望由 YCM 下载自带的 `clangd`，在命令后加 `--clangd-completer`，并在本机覆盖中把 `g:ycm_clangd_binary_path` 设为空字符串。 [YCM 官方安装说明](https://github.com/ycm-core/YouCompleteMe#installation)
+
+也可以手动构建。先在配置仓库运行 `python3 config/maintenance/portable-setup.py plugins` 获取插件源码，再在普通账号下进入 `~/.vim/bundle/YouCompleteMe`。macOS 执行 `/Library/Frameworks/Python.framework/Versions/3.13/bin/python3 install.py`，Gentoo 执行 `/usr/bin/python3.13 install.py`。在已有安装中手动重编前，先备份插件目录。
+
+### GitHub 访问受限时
+
+从能访问 GitHub 的机器转运一个包含 `.git` 和全部递归子模块的 YCM 检出，例如 macOS 上已完整初始化子模块的检出。把它解包在 Gentoo 的暂存目录后，给上述命令增加 `--source /path/to/YouCompleteMe`。在 Gentoo 解包时用 `tar --no-same-owner`，让 Git 检出的文件归当前账号所有。脚本从本地 Git 检出获取源码和子模块，在目标机器编译。可排除 `*.so`、`*.dylib` 和 `__pycache__` 以缩小传输大小。
+
+如果 CMake 下载 Abseil 时也超时，按所用 ycmd 的 `cpp/CMakeLists.txt` 中 `FetchContent_Declare(absl ...)` 记录的提交下载并解包 Abseil。在命令前设置 `EXTRA_CMAKE_ARGS=-DFETCHCONTENT_SOURCE_DIR_ABSL=/path/to/abseil`。使用 `--build-user` 时，该账号需要对解包目录有读取和遍历权限。
+
+### Windows 手动编译
+
+安装支持 Python 3 的 Vim、匹配架构的 Python 3.13、CMake、Visual Studio C++ Build Tools 和 `clangd`。从 Developer PowerShell 在配置仓库中执行：
+
+```powershell
+py -3 config/maintenance/portable-setup.py plugins
+Set-Location "$env:USERPROFILE/vimfiles/bundle/YouCompleteMe"
+py -3.13 install.py
+```
+
+需要 YCM 自带的 `clangd` 时可为 `install.py` 加 `--clangd-completer`，并清空本机覆盖中的外部后端路径。可以用 `py -3.13 -c "import sys; print(sys.executable)"` 获取解释器路径，供 `g:ycm_server_python_interpreter` 使用。
+
+### 验证
+
+安装后重启 Vim，在 C 文件中运行 `:YcmDebugInfo` 查看 ycmd 解释器和 clangd 后端。也可从配置仓库运行：
+
+```sh
+python3 config/maintenance/portable-setup.py smoke --ycm --vim /path/to/vim
+```
+
+Windows 用 `py -3` 启动该工具。检查确认加载的是目标 YCM 检出，并通过一个独立 C 示例测试跳转到定义。

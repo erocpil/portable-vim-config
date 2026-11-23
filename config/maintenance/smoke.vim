@@ -40,7 +40,6 @@ try
         execute 'buffer ' . bufnr(s:file)
     endif
     if index(s:checks, 'ycm') >= 0
-        call assert_true(executable('clangd') || executable(get(g:, 'ycm_clangd_binary_path', '')), 'clangd is missing')
         call writefile([json_encode([{'directory': s:dir, 'file': s:file,
                     \ 'arguments': ['clang', '-std=c17', '-c', s:file]}])],
                     \ s:dir . '/compile_commands.json')
@@ -48,6 +47,13 @@ try
         doautocmd VimEnter
         call assert_equal(2, exists(':YcmCompleter'), 'YCM is not loaded')
         if exists(':YcmCompleter') == 2
+            let s:expected_ycm = resolve(fnamemodify($VIM_SETUP_YCM, ':p'))
+            let s:loaded_ycm = resolve(fnamemodify(py3eval('__import__("ycm").__file__'), ':p'))
+            if has('win32') || has('win64')
+                call assert_equal(tolower(tr(s:expected_ycm, '\', '/')), tolower(tr(s:loaded_ycm, '\', '/')))
+            else
+                call assert_equal(s:expected_ycm, s:loaded_ycm, 'Unexpected YCM checkout')
+            endif
             let s:start = reltime()
             while !py3eval('ycm_state.CheckIfServerIsReady()') && reltimefloat(reltime(s:start)) < 20
                 sleep 100m

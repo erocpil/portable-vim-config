@@ -32,7 +32,7 @@ Vim 默认读取 `~/.vimrc`，由这条语句显式加载主配置。路径里�
     cd ~/.vim/config
     git pull --ff-only
 
-首次安装插件时，在仓库根目录运行 `python3 config/maintenance/portable-setup.py plugins`。该工具需要 Python 3.10 或更新版本。
+首次安装插件时，在仓库根目录运行 `python3 config/maintenance/portable-setup.py plugins --skip-ycm`。该工具需要 Python 3.10 或更新版本。
 
 ## Windows
 
@@ -52,7 +52,13 @@ py -3 config/maintenance/portable-setup.py plugins
 
 `plugins` 按 [插件清单](config/plugins.lock) 获取仓库及固定提交，并检查记录的 ycmd、Jedi 等子模块版本。该命令可以重复运行。它遇到已有目录的版本不符或目录没有 Git 元数据时会停止，请先备份该目录，再更新到锁定提交或把旧目录移出后重新运行。可以加 `--check` 只核对现有 Git 插件，或加 `--skip-ycm` 安装其它插件源码。
 
-YCM 还需本机构建。使用支持 Python 3 且架构匹配的 Vim，准备 Python 3.13、CMake、C++ 工具链和系统的 `clangd`。Windows 使用 Visual Studio C++ Build Tools，并从 Developer PowerShell 启动构建。分别进入 `~/.vim/bundle/YouCompleteMe` 或 `~/vimfiles/bundle/YouCompleteMe`，用目标 Python 执行 `install.py`。Windows 可用 `py -3.13 install.py`。YCM 安装脚本默认拒绝以 root 编译，可在普通账号可访问的暂存目录构建后再部署。macOS 及 Gentoo 的解释器路径见维护说明。现有配置使用外部 clangd。构建后用 `:YcmDebugInfo` 检查服务和后端。
+YCM 需要支持 Python 3 的 Vim，以及本机的 Python、CMake、C++ 工具链和 `clangd`。macOS 和 Linux 用户可以在仓库目录运行以下命令，下载源码、编译、验证定义跳转并安装：
+
+```sh
+python3 config/maintenance/portable-setup.py ycm --python python3.13
+```
+
+`--python` 应指向实际运行 ycmd 的解释器。`--vim` 可以指定实际使用的 Vim。Gentoo 的 root 安装、GitHub 访问受限时的源码转运，以及 Windows 的手动编译步骤见 [YCM 构建和安装](README-git.md#第三方插件与-ycm)。安装完成后重启 Vim，在 C 文件中运行 `:YcmDebugInfo` 查看后端。
 
 如要使用 Tagbar 或项目搜索，可分别准备 Universal Ctags 和 ripgrep。项目构建和调试命令由本机的项目配置、Make 和调试器决定。
 
