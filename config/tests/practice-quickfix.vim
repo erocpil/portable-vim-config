@@ -15,8 +15,12 @@ try
     execute 'edit ' . fnameescape(tempname() . '.c')
     setlocal filetype=c
     let s:source = win_getid()
+    let &eventignore = 'CursorHold'
     call s:Build('int main(void) { return unknown; }')
-    call assert_notequal(0, getqflist({'winid': 0}).winid)
+    let s:quickfix = getqflist({'winid': 0}).winid
+    call assert_notequal(0, s:quickfix)
+    call assert_equal('qf', getbufvar(winbufnr(s:quickfix), '&filetype'))
+    call assert_equal('CursorHold', &eventignore)
     call win_gotoid(s:source)
     call s:Build('int main(void) { int unused; return 0; }')
     call assert_equal(0, g:portable_vim_build_result.status)
@@ -24,11 +28,13 @@ try
     call s:Build('int main(void) { return 0; }')
     call assert_equal(0, getqflist({'winid': 0}).winid, 'Clean build must close practice quickfix')
     call setqflist([], ' ', {'title': 'Other tool', 'items': []})
-    copen
+    " Simulate an already-open list owned by another tool.
+    noautocmd copen
     let s:other = win_getid()
     call win_gotoid(s:source)
     call s:Build('int main(void) { return 0; }')
     call assert_equal(s:other, getqflist({'winid': 0}).winid, 'Other tool window must stay open')
+    call assert_notmatch('E495:', execute('messages'))
 catch
     call add(v:errors, v:exception . ' at ' . v:throwpoint)
 endtry

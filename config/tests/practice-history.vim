@@ -79,6 +79,7 @@ try
     call win_gotoid(s:source)
     execute 'source ' . fnameescape(fnamemodify(expand('<sfile>:p'), ':h:h') . '/dotvimrc')
     call assert_equal(s:history, g:portable_vim_practice_history, 'Reload must preserve history')
+    call assert_notmatch('E495:', execute('messages'), 'Opening results and compiler diagnostics must not trip the GUI Buffers menu')
 catch
     call add(v:errors, v:exception . ' at ' . v:throwpoint)
 endtry

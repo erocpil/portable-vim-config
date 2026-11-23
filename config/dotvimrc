@@ -940,8 +940,8 @@ function! s:DebugProgram(file) abort
         echohl WarningMsg | echom 'No GDB/LLDB debugger found; set g:portable_vim_debugger' | echohl None
         return
     endif
-    botright new
-    let l:opts = {'curwin': 1, 'term_highlight': 'Normal',
+    " Start the named terminal before opening its window.
+    let l:opts = {'hidden': 1, 'term_highlight': 'Normal',
                 \ 'term_name': 'Debugger: ' . fnamemodify(l:file, ':t'),
                 \ 'term_finish': 'open'}
     " A user palette overrides the active theme palette.  Restrict this to
@@ -953,9 +953,15 @@ function! s:DebugProgram(file) abort
     endif
     let l:buffer = term_start([l:debugger, '--', l:file], l:opts)
     if l:buffer == 0
-        close
         echohl WarningMsg | echom 'Failed to start debugger' | echohl None
+        return
     endif
+    try
+        execute 'botright sbuffer ' . l:buffer
+    catch /^Vim\%((\a\+)\)\=:E36:/
+        execute 'bwipeout! ' . l:buffer
+        echohl WarningMsg | echom 'Not enough room for the debugger window' | echohl None
+    endtry
 endfunction
 command! -nargs=1 -complete=file DebugProgram call <SID>DebugProgram(<f-args>)
 nnoremap <leader>db :DebugProgram<Space>
@@ -1322,7 +1328,20 @@ function! s:OpenQuickfixInCodeArea() abort
     call s:FocusCodeArea()
     " Vim may otherwise fill the space below a right-hand NERDTree even when
     " the code window is current.  A full-width bottom list remains readable.
-    botright copen
+    if !has('gui_running') || !exists('#buffer_list#BufAdd')
+        botright copen
+        return
+    endif
+    " :copen creates an unnamed buffer before setting buftype=quickfix.
+    " The GUI Buffers menu reads <afile> at BufAdd, before it can reject it.
+    " Keep FileType and BufWinEnter active so quickfix gets its usual setup.
+    let l:events = &eventignore
+    try
+        set eventignore+=BufAdd
+        botright copen
+    finally
+        let &eventignore = l:events
+    endtry
 endfunction
 
 function! s:ProjectBuild(args) abort
@@ -1521,7 +1540,8 @@ function! s:PracticeStatusAttach() abort
     endif
     " Preserve ManShow's layout and highlights, even when it rebuilds the line.
     let l:line = &statusline
-    if stridx(l:line, 'PortablePracticeStatus()') < 0
+    " A %! statusline is an expression, not a format string to append to.
+    if l:line !~# '^%!' && stridx(l:line, 'PortablePracticeStatus()') < 0
         let &l:statusline = l:line . '%#StatuslinePracticeStatus#%{PortablePracticeStatus()}%0*'
     endif
 endfunction
@@ -1554,35 +1574,48 @@ function! s:PracticeHistoryChanged() abort
     let g:portable_vim_practice_history = deepcopy(s:practice_history)
     redrawstatus!
 endfunction
-function! s:PracticeResultPane(context) abort
+function! s:PracticeResultWindow(context) abort
     for l:id in keys(s:practice_windows)
         let l:win = win_id2win(str2nr(l:id))
         if l:win && s:practice_windows[l:id].origin == a:context.origin
                     \ && getbufvar(winbufnr(l:win), 'portable_practice_id', 0)
-            call win_gotoid(str2nr(l:id))
-            return 1
+            return str2nr(l:id)
         endif
     endfor
-    call s:PracticeReturnToSource(a:context, 0)
-    if &buftype !=# ''
-        echom 'No code window available for practice results in this tab'
-        return 0
+    return 0
+endfunction
+function! s:ShowPracticeResult(context, terminal) abort
+    let l:window = s:PracticeResultWindow(a:context)
+    if l:window && win_gotoid(l:window)
+        execute 'hide buffer ' . a:terminal
+    else
+        call s:PracticeReturnToSource(a:context, 0)
+        if !s:IsCodeAreaWindow(win_getid())
+            echom 'No code window available for practice output; use :PracticeLast from a code window'
+            return
+        endif
+        try
+            execute 'belowright sbuffer ' . a:terminal
+            resize 10
+        catch /^Vim\%((\a\+)\)\=:E36:/
+            echom 'Not enough room for practice output; make room and use :PracticeLast'
+            return
+        endtry
     endif
-    belowright new
-    return 1
+    call s:PracticeStatusAttach()
+    let s:practice_windows[string(win_getid())] = a:context
 endfunction
 function! s:PracticeReturnToSource(context, timer) abort
     " Stay in the current tab; a source window may have closed during the run.
     let l:origin = win_id2win(a:context.origin)
     if l:origin && winbufnr(l:origin) == a:context.source_buffer
-                \ && getbufvar(a:context.source_buffer, '&buftype') ==# ''
+                \ && s:IsCodeAreaWindow(a:context.origin)
         call win_gotoid(a:context.origin)
         return
     endif
     let l:fallback = 0
     for l:win in getwininfo()
-        if l:win.tabnr != tabpagenr() || getbufvar(l:win.bufnr, '&buftype') !=# ''
-                    \ || getwinvar(l:win.winnr, '&previewwindow')
+        if l:win.tabnr != tabpagenr() || !s:IsCodeAreaWindow(l:win.winid)
             continue
         endif
         if l:win.bufnr == a:context.source_buffer
@@ -1652,46 +1685,42 @@ function! s:PracticeCompiled(context, result) abort
         echom 'Practice input disappeared: ' . a:context.input
         return
     endif
-    if !s:PracticeResultPane(a:context)
-        return
-    endif
-    " Hide, rather than overwrite, the previous completed terminal buffer.
-    hide enew
-    setlocal termwinsize=10*0
     let l:record = extend(copy(a:context), {'id': s:practice_next_id,
                 \ 'time': strftime('%Y-%m-%d %H:%M:%S'), 'terminal': 0,
                 \ 'phase': 'running', 'status': 'running'})
-    let s:practice_next_id += 1
-    call add(s:practice_history, l:record)
-    let s:practice.state = l:record
-    let g:portable_vim_practice_result = copy(l:record)
-    " Keep results visible, but do not reopen a window the user has closed.
+    " Create the terminal before assigning it to a window. :new/:enew create
+    " unnamed placeholders whose events can break the GUI Buffers menu.
     " Use the theme's Normal colors instead of a separate Terminal background.
     " Keep the ANSI palette intact for colored program/sanitizer output.
-    let l:opts = {'cwd': a:context.root, 'curwin': 1, 'term_highlight': 'Normal',
+    let l:pane_id = s:PracticeResultWindow(a:context)
+    let l:window = get(getwininfo(l:pane_id ? l:pane_id : a:context.origin), 0, {})
+    let l:opts = {'cwd': a:context.root, 'hidden': 1, 'term_highlight': 'Normal',
+                \ 'term_rows': l:pane_id ? get(l:window, 'height', 10) : 10,
                 \ 'term_name': 'Practice #' . l:record.id . ': ' . fnamemodify(a:context.source, ':t'),
                 \ 'exit_cb': function('<SID>PracticeExited', [l:record])}
+    if has_key(l:window, 'width')
+        let l:opts.term_cols = l:window.width
+    endif
     if !empty(a:context.input)
         let l:opts.in_io = 'file'
         let l:opts.in_name = a:context.input
     endif
     let l:buf = term_start([a:context.output], l:opts)
     if l:buf <= 0
-        let s:practice.state = {}
-        call remove(s:practice_history, -1)
-        call s:PracticeHistoryChanged()
-        close
+        let g:portable_vim_practice_result.status = -1
         echom 'Could not start practice program'
         return
     endif
     let l:record.terminal = l:buf
-    call setbufvar(l:buf, 'portable_practice_record', l:record)
-    call setbufvar(l:buf, 'portable_practice_id', l:record.id)
-    call s:PracticeStatusAttach()
-    call setbufvar(l:buf, '&bufhidden', 'hide')
-    let s:practice_windows[string(win_getid())] = a:context
+    let s:practice_next_id += 1
+    call add(s:practice_history, l:record)
+    let s:practice.state = l:record
     let s:practice.run_job = term_getjob(l:buf)
     let g:portable_vim_practice_result = copy(l:record)
+    call setbufvar(l:buf, 'portable_practice_record', l:record)
+    call setbufvar(l:buf, 'portable_practice_id', l:record.id)
+    call setbufvar(l:buf, '&bufhidden', 'hide')
+    call s:ShowPracticeResult(a:context, l:buf)
     call s:PracticeHistoryChanged()
 endfunction
 function! s:PracticeHistoryIds(A, L, P) abort
@@ -1728,11 +1757,7 @@ function! s:PracticeHistory(id) abort
         echoerr 'Practice output buffer was deleted'
         return
     endif
-    if s:PracticeResultPane(l:record)
-        execute 'hide buffer ' . l:record.terminal
-        call s:PracticeStatusAttach()
-        let s:practice_windows[string(win_getid())] = l:record
-    endif
+    call s:ShowPracticeResult(l:record, l:record.terminal)
 endfunction
 function! s:Practice(run, checked, input, ...) abort
     if get(s:build, 'running', 0) || (has_key(s:practice, 'run_job') && job_status(s:practice.run_job) ==# 'run')
@@ -2060,10 +2085,24 @@ let s:search = get(s:, 'search', {})
 let s:inspection = get(s:, 'inspection', {})
 function! s:ShowReport(name, lines, filetype) abort
     call s:FocusCodeArea()
-    botright new
+    " Allocate a named report buffer before opening its split.
+    let l:name = a:name
+    while bufexists(l:name) || getftype(l:name) !=# ''
+        let l:name = a:name . ' #' . fnamemodify(tempname(), ':t')
+    endwhile
+    let l:buffer = bufadd(l:name)
+    if l:buffer <= 0
+        echoerr 'Could not allocate report buffer: ' . a:name
+        return
+    endif
+    try
+        execute 'botright sbuffer ' . l:buffer
+    catch /^Vim\%((\a\+)\)\=:E36:/
+        execute 'bwipeout ' . l:buffer
+        echoerr 'Not enough room for the report window'
+        return
+    endtry
     setlocal buftype=nofile bufhidden=wipe noswapfile
-    let l:name = bufexists(a:name) ? a:name . ' #' . bufnr('%') : a:name
-    execute 'file ' . fnameescape(l:name)
     call setline(1, empty(a:lines) ? [''] : a:lines)
     let &l:filetype = a:filetype
     setlocal nomodified nomodifiable readonly

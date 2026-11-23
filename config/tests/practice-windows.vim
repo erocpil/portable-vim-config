@@ -19,11 +19,10 @@ try
     setlocal filetype=c
     let s:source = win_getid()
     let s:sourcebuf = bufnr('%')
-    topleft vnew
+    execute 'topleft vnew ' . fnameescape('[Tagbar Test]')
     " Older NERDTree releases leave buftype empty, so filetype must also be
     " considered when selecting the main code area.
     setlocal bufhidden=hide noswapfile filetype=nerdtree
-    file [Tagbar Test]
     let s:sidebar = win_getid()
     call win_gotoid(s:source)
     let s:result = s:Run(s:sidebar)
@@ -72,6 +71,7 @@ try
     quit
     sleep 20m
     call assert_equal(s:fallback, win_getid(), 'Closed origin should fall back to a visible source window')
+    call assert_notmatch('E495:', execute('messages'), 'Result windows must not trip the GUI Buffers menu')
 catch
     call add(v:errors, v:exception . ' at ' . v:throwpoint)
 endtry

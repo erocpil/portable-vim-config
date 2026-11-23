@@ -17,6 +17,7 @@ call assert_equal('#6b5a00', term_getansicolors(s:buffer)[11])
 bwipeout!
 colorscheme Celibate
 call assert_false(exists('g:portable_vim_debugger_theme_ansi_colors'))
+call assert_notmatch('E495:', execute('messages'), 'Debugger startup must not trip the GUI Buffers menu')
 call delete(s:program)
 if !empty(v:errors)
     call writefile(v:errors, '/tmp/portable-debugger-palette-errors')
