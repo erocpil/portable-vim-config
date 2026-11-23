@@ -2,6 +2,12 @@
 
 这套配置在 macOS、Linux 和 Windows 上共用 `dotvimrc`、配色、ManShow、快捷键和项目命令。Vim、编译器和 YCM 原生模块使用本机版本。macOS 和 Gentoo 的 Vim 源码构建流程见 [维护说明](README-git.md)。
 
+## 界面预览
+
+![MacVim 使用 ManShow 配色，左侧是 Tagbar 函数列表，右侧是 C 源码和 PracticeRun 的输出。](docs/images/macvim-practicerun.webp)
+
+在 MacVim 中编辑 C 示例，左侧用 Tagbar 浏览函数，右下方显示 `:PracticeRun` 编译并运行后的输出。
+
 ## macOS 和 Linux
 
 日常使用的仓库放在 `~/.vim/config`，开发时可以另建一份检出。如果已经有 `~/.vim/config` 或 `~/.vimrc`，先将旧版备份到其他位置。旧部署中的 `~/.vim/config/.vim-pack` 如有独立安装的插件，可从备份移到 `~/.vim/.vim-pack`。已有 `~/.vim/bundle` 和 `~/.vim/vimrc.local` 可以继续使用。
